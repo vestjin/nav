@@ -255,8 +255,9 @@
           .join('');
         const collapsed = isCollapsed(cat);
         return `
-          <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}" draggable="true">
-            <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开，拖动可重排分类">
+          <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}">
+            <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开">
+              <span class="category-drag" data-category-drag role="button" tabindex="-1" aria-label="拖动调整分类顺序" title="拖动调整分类顺序">⠿</span>
               <div class="category-title">${escapeHtml(cat)}</div>
               <div class="category-meta">
                 <div class="category-count">${
@@ -346,14 +347,32 @@
       requestAnimationFrame(() => card.classList.add('dragging'));
       return;
     }
-    // 分类：从 header 区域拖动
-    const section = e.target.closest('.category[draggable="true"]');
-    const header  = e.target.closest('[data-toggle-category]');
-    if (section && header) {
+    // 分类：只允许通过专用手柄（⠿）拖动，避免误带文字/卡片
+    const handle = e.target.closest('[data-category-drag]');
+    if (handle) {
+      const section = handle.closest('.category');
+      if (!section) return;
       drag.kind = 'category';
       drag.cat  = section.dataset.category;
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', 'cat:' + drag.cat); } catch {}
+      // 自定义拖动预览：截取整组 section（避开卡片，避免视觉上"带其他分组"）
+      const ghost = section.cloneNode(true);
+      ghost.style.position = 'absolute';
+      ghost.style.top = '-9999px';
+      ghost.style.left = '-9999px';
+      ghost.style.width = section.offsetWidth + 'px';
+      ghost.style.opacity = '0.85';
+      ghost.style.pointerEvents = 'none';
+      // 隐藏卡片内容，只留 header 作为拖动预览
+      const cards = ghost.querySelector('.cards');
+      if (cards) cards.style.display = 'none';
+      document.body.appendChild(ghost);
+      try {
+        e.dataTransfer.setDragImage(ghost, 12, 14);
+      } catch {}
+      // 必须在 setDragImage 后再清掉（同步生效即可）
+      setTimeout(() => ghost.remove(), 0);
       requestAnimationFrame(() => section.classList.add('dragging'));
     }
   };

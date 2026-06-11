@@ -254,7 +254,32 @@ button { font: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+/* 分类拖拽手柄：左侧 ⠿，仅此区域可拖动整组 */
+.category-drag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 18px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: grab;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  user-select: none;
+  -webkit-user-drag: element;
+  transition: color 0.15s, background 0.15s;
+}
+.category-drag:hover  { color: var(--text); background: var(--border); }
+.category-drag:active { cursor: grabbing; }
 .category-title::before {
   content: "";
   width: 3px;
