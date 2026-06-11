@@ -243,7 +243,7 @@ SW 默认从缓存读，且只在新 SW `install` 后才接管。两种方式：
 <details>
 <summary><b>删除书签后"闪回"又出现？</b></summary>
 
-已修复。原因是 `confirm` 弹窗关闭触发 `focus` 事件 → 自动拉取旧 Gist 数据。代码用 `pendingPush` 守卫 + 推送期间变更排队机制解决。
+已修复。原因是 `confirm` 弹窗关闭触发 `focus` 事件 → 自动拉取旧 Gist 数据。代码用 `pendingPush` 守卫机制解决；同步现在是手动的，所以「闪回」问题不会再发生。
 </details>
 
 <details>
@@ -256,7 +256,7 @@ SW 默认从缓存读，且只在新 SW `install` 后才接管。两种方式：
 <details>
 <summary><b>多设备冲突，最后写入的会覆盖另一台？</b></summary>
 
-是。当前是 **last-write-wins** 策略。日常使用几乎不会冲突（推送 1.5s 防抖 + 切回标签自动拉取）。如对冲突敏感，编辑前在同步设置里点 ⬇ 拉取一次。
+是。当前是 **last-write-wins** 策略。**所有同步都是手动的**（避免触发 Gist API 频率限制）：编辑后需在同步设置里点 ⬆ 推送；其他设备的改动需点 ⬇ 拉取。如对冲突敏感，编辑前先点 ⬇ 拉取一次。
 </details>
 
 <details>

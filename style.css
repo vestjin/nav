@@ -450,6 +450,13 @@ button { font: inherit; }
 .sync-indicator.syncing { color: #b08c4a; }
 .sync-indicator.synced  { color: #6f9472; }
 .sync-indicator.error   { color: var(--danger); }
+.sync-indicator.unsaved {
+  color: #b08c4a;
+  background: rgba(176, 140, 74, 0.1);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
 
 .settings-hint {
   font-size: 12px;

@@ -257,7 +257,7 @@
         saveBookmarks(bookmarks);
         render($('#searchInput').value);
         showToast('已删除');
-        schedulePush();
+        markPending();
       }
     }
   };
@@ -302,7 +302,7 @@
     closeModal();
     render($('#searchInput').value);
     showToast('已保存');
-    schedulePush();
+    markPending();
     // 异步抓取新书签的元数据
     enrichAll(false);
   };
@@ -343,7 +343,7 @@
         render($('#searchInput').value);
         enrichAll(false);
         showToast(`已导入，共 ${bookmarks.length} 项`);
-        schedulePush();
+        markPending();
       } catch (err) {
         showToast('导入失败：' + err.message);
       }
@@ -489,57 +489,25 @@
     saveSyncConfig(cfg);
   };
 
-  let pushTimer = null;
   let syncing = false;
   let pendingPush = false;   // 本地有未推送的变更，期间禁止拉取覆盖
-  let queuedDuringSync = false;
 
-  const schedulePush = () => {
+  // 标记本地有未推送的修改（仅打标，不自动推送，避免触发 Gist API 频率限制）
+  const markPending = () => {
     if (!loadSyncConfig().enabled) return;
     pendingPush = true;
-    if (syncing) {
-      // 当前正在推送，把这次改动排队，等当前推送结束后再推一次
-      queuedDuringSync = true;
-      return;
-    }
-    clearTimeout(pushTimer);
-    pushTimer = setTimeout(executeScheduledPush, 1500);
-  };
-
-  const executeScheduledPush = async () => {
-    if (!loadSyncConfig().enabled) {
-      pendingPush = false;
-      return;
-    }
-    if (syncing) {
-      queuedDuringSync = true;
-      return;
-    }
-    syncing = true;
-    setSyncIndicator('syncing', '⏳');
-    try {
-      await pushToGist(bookmarks);
-      setSyncIndicator('synced', '✓');
-      setTimeout(() => setSyncIndicator('', ''), 1500);
-      pendingPush = false; // 推送成功，本地与云端一致
-    } catch (err) {
-      setSyncIndicator('error', '⚠');
-      setSyncStatus('推送失败：' + err.message, 'error');
-      // 推送失败保留 pendingPush=true，避免被拉取覆盖
-    } finally {
-      syncing = false;
-      if (queuedDuringSync) {
-        queuedDuringSync = false;
-        schedulePush();
-      }
-    }
+    setSyncIndicator('unsaved', '●');
+    setSyncStatus('本地有未推送的修改', 'busy');
   };
 
   const doPull = async (silent = false, force = false) => {
     if (syncing) return;
     if (pendingPush && !force) {
       // 本地有未推送的改动，不允许拉取覆盖（防删除"闪回"）
-      if (!silent) setSyncStatus('本地有未推送的修改，请先推送或等待…', 'busy');
+      if (!silent) {
+        setSyncIndicator('unsaved', '●');
+        setSyncStatus('本地有未推送的修改，请先点击「推送到 Gist」', 'busy');
+      }
       return;
     }
     syncing = true;
@@ -549,7 +517,10 @@
       const remote = await pullFromGist();
       // 拉取过程中用户可能又改了本地，再检查一次
       if (pendingPush && !force) {
-        if (!silent) setSyncStatus('本地有新修改，已取消本次拉取', 'busy');
+        if (!silent) {
+          setSyncIndicator('unsaved', '●');
+          setSyncStatus('本地有新修改，已取消本次拉取', 'busy');
+        }
         return;
       }
       if (remote === null) {
@@ -586,10 +557,12 @@
       setSyncStatus('已同步 · ' + new Date().toLocaleString('zh-CN'), 'ok');
       showToast('已推送到 Gist');
       setTimeout(() => setSyncIndicator('', ''), 1500);
+      pendingPush = false; // 推送成功，本地与云端一致
     } catch (err) {
       setSyncIndicator('error', '⚠');
       setSyncStatus('推送失败：' + err.message, 'error');
       showToast('推送失败：' + err.message);
+      // 推送失败保留 pendingPush=true
     } finally {
       syncing = false;
     }
