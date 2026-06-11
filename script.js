@@ -12,6 +12,7 @@
   const LS_ENGINE = 'personal-nav-engine-v1';
   const LS_SYNC = 'personal-nav-sync-v1';  // { token, gistId, enabled, lastSync }
   const LS_COLLAPSED = 'personal-nav-collapsed-v1'; // 折叠的分类名列表
+  const LS_CAT_ORDER = 'personal-nav-cat-order-v1'; // 分类显示顺序
   const CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 天
 
   // 预置搜索引擎
@@ -70,6 +71,17 @@
     if (collapsedSet.has(cat)) collapsedSet.delete(cat);
     else collapsedSet.add(cat);
     saveCollapsed();
+  };
+
+  // 分类显示顺序：localStorage 存数组；首次使用时 "常用" 排第一
+  let categoryOrder = (() => {
+    try {
+      const arr = JSON.parse(localStorage.getItem(LS_CAT_ORDER));
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  })();
+  const saveCategoryOrder = () => {
+    localStorage.setItem(LS_CAT_ORDER, JSON.stringify(categoryOrder));
   };
 
   const loadMeta = () => {
@@ -193,8 +205,25 @@
     });
 
     const meta = loadMeta();
+
+    // 维护 categoryOrder：新增的分类追加到末尾；已删除的分类从顺序中移除
+    const orderChanged =
+      Object.keys(groups).some((c) => !categoryOrder.includes(c)) ||
+      categoryOrder.some((c) => !Object.prototype.hasOwnProperty.call(groups, c));
+    if (orderChanged) {
+      const present = categoryOrder.filter((c) => Object.prototype.hasOwnProperty.call(groups, c));
+      const newOnes = Object.keys(groups).filter((c) => !categoryOrder.includes(c));
+      categoryOrder = present.concat(newOnes);
+      saveCategoryOrder();
+    }
+
     const sortedCats = Object.keys(groups).sort((a, b) => {
-      // "常用" 排第一
+      const ai = categoryOrder.indexOf(a);
+      const bi = categoryOrder.indexOf(b);
+      if (ai >= 0 && bi >= 0) return ai - bi;
+      if (ai >= 0) return -1;
+      if (bi >= 0) return 1;
+      // 都不在顺序数组中（极少发生）：常用排第一，其余按拼音
       if (a === '常用') return -1;
       if (b === '常用') return 1;
       return a.localeCompare(b, 'zh-CN');
@@ -209,24 +238,25 @@
             const iconUrl    = bm.icon || m.icon || buildFaviconUrl(bm.url);
             const firstChar  = (displayName || '?').trim().charAt(0).toUpperCase();
             return `
-              <a class="card" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" data-id="${bm.id}" title="${escapeHtml(bm.name || safeHost(bm.url))}">
+              <a class="card" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" data-id="${bm.id}" draggable="true" title="${escapeHtml(bm.name || safeHost(bm.url))}">
+                <div class="card-drag" aria-hidden="true" title="拖动排序">⠿</div>
                 <div class="card-icon">
-                  <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                  <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
                   <div class="fallback" style="display:none">${escapeHtml(firstChar)}</div>
                 </div>
                 <div class="card-name">${escapeHtml(displayName)}</div>
                 <div class="card-url">${escapeHtml(safeHost(bm.url))}</div>
                 <div class="card-actions">
-                  <button type="button" data-action="edit" data-id="${bm.id}" title="编辑">✎</button>
-                  <button type="button" data-action="del"  data-id="${bm.id}" title="删除">🗑</button>
+                  <button type="button" data-action="edit" data-id="${bm.id}" title="编辑" draggable="false">✎</button>
+                  <button type="button" data-action="del"  data-id="${bm.id}" title="删除" draggable="false">🗑</button>
                 </div>
               </a>`;
           })
           .join('');
         const collapsed = isCollapsed(cat);
         return `
-          <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}">
-            <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开">
+          <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}" draggable="true">
+            <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开，拖动可重排分类">
               <div class="category-title">${escapeHtml(cat)}</div>
               <div class="category-meta">
                 <div class="category-count">${
@@ -291,6 +321,174 @@
         markPending();
       }
     }
+  };
+
+  // ---------- 拖拽排序 ----------
+  // 拖拽状态：区分卡片 / 分类两种 kind
+  const drag = { kind: null, id: null, cat: null };
+
+  // 清除所有拖拽相关的视觉态
+  const clearDragStates = () => {
+    document.querySelectorAll('.dragging, .drag-over, .drag-over-before, .drag-over-after')
+      .forEach((el) => el.classList.remove('dragging', 'drag-over', 'drag-over-before', 'drag-over-after'));
+  };
+
+  const onDragStart = (e) => {
+    // 卡片：被拖动
+    const card = e.target.closest('.card[draggable="true"]');
+    if (card) {
+      drag.kind = 'card';
+      drag.id   = card.dataset.id;
+      drag.cat  = card.closest('.category').dataset.category;
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', 'card:' + drag.id); } catch {}
+      // 延迟加 class，避免拖动预览半透明
+      requestAnimationFrame(() => card.classList.add('dragging'));
+      return;
+    }
+    // 分类：从 header 区域拖动
+    const section = e.target.closest('.category[draggable="true"]');
+    const header  = e.target.closest('[data-toggle-category]');
+    if (section && header) {
+      drag.kind = 'category';
+      drag.cat  = section.dataset.category;
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', 'cat:' + drag.cat); } catch {}
+      requestAnimationFrame(() => section.classList.add('dragging'));
+    }
+  };
+
+  const onDragEnd = () => {
+    drag.kind = null;
+    drag.id = null;
+    drag.cat = null;
+    clearDragStates();
+  };
+
+  // 工具：从 Y 坐标判断相对 target 的"上半 / 下半"
+  const isBeforeTarget = (target, clientY) => {
+    const r = target.getBoundingClientRect();
+    return clientY - r.top < r.height / 2;
+  };
+
+  const onDragOver = (e) => {
+    if (!drag.kind) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    // 实时清理其他高亮，避免重叠
+    document.querySelectorAll('.drag-over, .drag-over-before, .drag-over-after')
+      .forEach((el) => el.classList.remove('drag-over', 'drag-over-before', 'drag-over-after'));
+
+    if (drag.kind === 'card') {
+      // 卡片拖拽中：目标可以是另一张卡片（排序）或分类 header（移动到该分类）
+      const targetCard = e.target.closest('.card[draggable="true"]');
+      const targetSection = e.target.closest('.category');
+      if (!targetSection) return;
+      // 排除自身
+      if (targetCard && targetCard.dataset.id === drag.id) return;
+      if (targetCard) {
+        const before = isBeforeTarget(targetCard, e.clientY);
+        targetCard.classList.add(before ? 'drag-over-before' : 'drag-over-after');
+      } else if (e.target.closest('[data-toggle-category]') || e.target.closest('.cards')) {
+        // 拖到 header 区域或 cards 区域空白处 → 高亮整个 section
+        targetSection.classList.add('drag-over');
+      }
+    } else if (drag.kind === 'category') {
+      const targetSection = e.target.closest('.category');
+      if (!targetSection) return;
+      if (targetSection.dataset.category === drag.cat) return;
+      // 分类拖拽中：目标必须命中 header（避免拖到卡片时误判）
+      if (e.target.closest('[data-toggle-category]')) {
+        const before = isBeforeTarget(targetSection, e.clientY);
+        targetSection.classList.add(before ? 'drag-over-before' : 'drag-over-after');
+      }
+    }
+  };
+
+  // 防止 dragleave 误清掉状态：用 relatedTarget 校验
+  const onDragLeave = (e) => {
+    // 简化：onDragOver 会立即覆盖，这里不需要做事
+  };
+
+  const onDrop = (e) => {
+    if (!drag.kind) return;
+    e.preventDefault();
+
+    if (drag.kind === 'card') {
+      const targetCard = e.target.closest('.card[draggable="true"]');
+      const targetSection = e.target.closest('.category');
+      if (!targetSection) return;
+      const targetCat = targetSection.dataset.category;
+
+      if (targetCard && targetCard.dataset.id !== drag.id) {
+        const before = targetCard.classList.contains('drag-over-before');
+        reorderCard(drag.id, drag.cat, targetCard.dataset.id, targetCat, before);
+      } else if (!targetCard) {
+        // 拖到 header 或 cards 空白处 → 移动到该分类末尾
+        moveCardToCategory(drag.id, drag.cat, targetCat);
+      }
+    } else if (drag.kind === 'category') {
+      const targetSection = e.target.closest('.category');
+      if (!targetSection || targetSection.dataset.category === drag.cat) {
+        onDragEnd();
+        return;
+      }
+      const before = targetSection.classList.contains('drag-over-before');
+      reorderCategory(drag.cat, targetSection.dataset.category, before);
+    }
+
+    saveBookmarks(bookmarks);
+    render($('#searchInput').value);
+    markPending();
+    onDragEnd();
+  };
+
+  // 卡片重排 / 跨分类移动：bookmarks 数组顺序即显示顺序
+  const reorderCard = (draggedId, sourceCat, targetId, targetCat, before) => {
+    const dragIdx = bookmarks.findIndex((b) => b.id === draggedId);
+    if (dragIdx < 0) return;
+    const [moved] = bookmarks.splice(dragIdx, 1);
+    if (sourceCat !== targetCat) moved.category = targetCat;
+    const tgtIdx = bookmarks.findIndex((b) => b.id === targetId);
+    if (tgtIdx < 0) {
+      // 找不到 target（极端情况）→ 放到目标分类末尾
+      let last = -1;
+      for (let i = 0; i < bookmarks.length; i++) {
+        if ((bookmarks[i].category || '未分类') === targetCat) last = i;
+      }
+      bookmarks.splice(last + 1, 0, moved);
+    } else {
+      bookmarks.splice(before ? tgtIdx : tgtIdx + 1, 0, moved);
+    }
+  };
+
+  const moveCardToCategory = (draggedId, sourceCat, targetCat) => {
+    if (sourceCat === targetCat) return;
+    const dragIdx = bookmarks.findIndex((b) => b.id === draggedId);
+    if (dragIdx < 0) return;
+    const [moved] = bookmarks.splice(dragIdx, 1);
+    moved.category = targetCat;
+    // 追加到目标分类末尾
+    let last = -1;
+    for (let i = 0; i < bookmarks.length; i++) {
+      if ((bookmarks[i].category || '未分类') === targetCat) last = i;
+    }
+    bookmarks.splice(last + 1, 0, moved);
+  };
+
+  const reorderCategory = (sourceCat, targetCat, before) => {
+    // 把 sourceCat 从 categoryOrder 中移除，再插到 targetCat 前后
+    const srcIdx = categoryOrder.indexOf(sourceCat);
+    if (srcIdx >= 0) categoryOrder.splice(srcIdx, 1);
+    else categoryOrder.push(sourceCat);
+    const tgtIdx = categoryOrder.indexOf(targetCat);
+    if (tgtIdx < 0) {
+      categoryOrder.push(sourceCat);
+    } else {
+      categoryOrder.splice(before ? tgtIdx : tgtIdx + 1, 0, sourceCat);
+    }
+    saveCategoryOrder();
   };
 
   // ---------- 弹窗 ----------
@@ -707,6 +905,13 @@
 
     // 委托：卡片上的编辑/删除
     $('#navContainer').addEventListener('click', onCardAction);
+    // 拖拽：start/end/over/drop（HTML5 Drag & Drop API）
+    const navEl = $('#navContainer');
+    navEl.addEventListener('dragstart', onDragStart);
+    navEl.addEventListener('dragend',   onDragEnd);
+    navEl.addEventListener('dragover',  onDragOver);
+    navEl.addEventListener('dragleave', onDragLeave);
+    navEl.addEventListener('drop',      onDrop);
     // 分类 header 键盘操作（回车/空格 折叠）
     $('#navContainer').addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;

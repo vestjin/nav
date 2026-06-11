@@ -113,6 +113,8 @@ const DEFAULT_GIST_ID = '你的默认GistID';
 | `Esc` | 关闭弹窗 |
 | `Enter`（网页搜索框） | 在选中引擎中搜索 |
 | 点击分类标题 | 收起 / 展开该分类 |
+| 拖动卡片 | 排序 / 跨分类移动 |
+| 拖动分类 | 调整分类顺序 |
 
 ## 📁 文件结构
 
@@ -142,6 +144,7 @@ nav/
 | 引擎选择 | `localStorage[personal-nav-engine-v1]` | 上次用的搜索引擎 |
 | 同步配置 | `localStorage[personal-nav-sync-v1]` | Token + Gist ID |
 | 折叠状态 | `localStorage[personal-nav-collapsed-v1]` | 折叠的分类名数组 |
+| 分类顺序 | `localStorage[personal-nav-cat-order-v1]` | 分类显示顺序 |
 | 云端备份 | GitHub Gist（私有） | 多设备同步 |
 | 离线缓存 | Cache Storage | PWA 离线访问（SW 管理） |
 
@@ -277,8 +280,8 @@ location.reload();
 
 - [x] ~~PWA：manifest + service worker，支持安装到桌面 / 完全离线~~
 - [x] ~~分组折叠：分类可收起 / 展开~~
+- [x] ~~拖拽排序：分类与卡片~~
 - [ ] 多 Gist 切换：工作 / 生活 / 学习 分组同步
-- [ ] 拖拽排序：分类与卡片
 - [ ] 暗色模式：`prefers-color-scheme: dark`
 - [ ] 导入浏览器书签：解析 Chrome / Firefox 的 `bookmarks.html`
 - [ ] 快捷键直达：输入 `gh` 回车直达 GitHub

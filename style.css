@@ -301,6 +301,11 @@ button { font: inherit; }
 }
 .category.collapsed .category-header { margin-bottom: 0; padding-bottom: 0; border-bottom-color: transparent; }
 
+.category.dragging { opacity: 0.45; }
+.category.drag-over         { box-shadow: inset 0 0 0 2px var(--primary); }
+.category.drag-over-before  { box-shadow: 0 -3px 0 var(--primary); }
+.category.drag-over-after   { box-shadow: 0  3px 0 var(--primary); }
+
 .card {
   position: relative;
   display: flex;
@@ -313,10 +318,32 @@ button { font: inherit; }
   border-radius: 8px;
   text-decoration: none;
   color: var(--text);
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s, box-shadow 0.15s;
   min-height: 88px;
   overflow: hidden;
+  cursor: grab;
 }
+.card:active { cursor: grabbing; }
+.card.dragging {
+  opacity: 0.35;
+  border-style: dashed;
+}
+.card.drag-over-before { box-shadow: 0 -3px 0 var(--primary); }
+.card.drag-over-after  { box-shadow: 0  3px 0 var(--primary); }
+
+/* 拖拽手柄：左上角小点，hover 时更明显 */
+.card-drag {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.35;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.card:hover .card-drag { opacity: 0.7; }
 .card:hover {
   background: var(--card-hover);
   border-color: var(--primary);
