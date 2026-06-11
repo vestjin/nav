@@ -11,6 +11,7 @@
   const LS_META = 'personal-nav-meta-v1'; // 抓取缓存：{ id: {title, icon, ts} }
   const LS_ENGINE = 'personal-nav-engine-v1';
   const LS_SYNC = 'personal-nav-sync-v1';  // { token, gistId, enabled, lastSync }
+  const LS_COLLAPSED = 'personal-nav-collapsed-v1'; // 折叠的分类名列表
   const CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 天
 
   // 预置搜索引擎
@@ -55,6 +56,20 @@
 
   const saveBookmarks = (list) => {
     localStorage.setItem(LS_KEY, JSON.stringify(list));
+  };
+
+  // 折叠状态：以 Set 形式存在内存，localStorage 存数组
+  let collapsedSet = new Set(
+    (() => { try { return JSON.parse(localStorage.getItem(LS_COLLAPSED)) || []; } catch { return []; } })()
+  );
+  const saveCollapsed = () => {
+    localStorage.setItem(LS_COLLAPSED, JSON.stringify(Array.from(collapsedSet)));
+  };
+  const isCollapsed = (cat) => collapsedSet.has(cat);
+  const toggleCollapsed = (cat) => {
+    if (collapsedSet.has(cat)) collapsedSet.delete(cat);
+    else collapsedSet.add(cat);
+    saveCollapsed();
   };
 
   const loadMeta = () => {
@@ -208,15 +223,19 @@
               </a>`;
           })
           .join('');
+        const collapsed = isCollapsed(cat);
         return `
-          <section class="category">
-            <div class="category-header">
+          <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}">
+            <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开">
               <div class="category-title">${escapeHtml(cat)}</div>
-              <div class="category-count">${
-                kw
-                  ? `${groups[cat].shown.length} / ${groups[cat].all.length}`
-                  : groups[cat].all.length
-              }</div>
+              <div class="category-meta">
+                <div class="category-count">${
+                  kw
+                    ? `${groups[cat].shown.length} / ${groups[cat].all.length}`
+                    : groups[cat].all.length
+                }</div>
+                <div class="category-toggle" aria-hidden="true">▸</div>
+              </div>
             </div>
             <div class="cards">${items}</div>
           </section>`;
@@ -241,6 +260,18 @@
 
   // ---------- 卡片事件（编辑/删除） ----------
   const onCardAction = (e) => {
+    // 折叠/展开分类（点击 header 区域，非按钮）
+    const header = e.target.closest('[data-toggle-category]');
+    if (header) {
+      const section = header.closest('.category');
+      const cat = section && section.dataset.category;
+      if (cat) {
+        toggleCollapsed(cat);
+        section.classList.toggle('collapsed');
+        header.setAttribute('aria-expanded', !section.classList.contains('collapsed'));
+      }
+      return;
+    }
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     // 阻止冒泡到外层 <a> 触发导航
@@ -676,6 +707,14 @@
 
     // 委托：卡片上的编辑/删除
     $('#navContainer').addEventListener('click', onCardAction);
+    // 分类 header 键盘操作（回车/空格 折叠）
+    $('#navContainer').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const header = e.target.closest('[data-toggle-category]');
+      if (!header) return;
+      e.preventDefault();
+      header.click();
+    });
 
     // ESC 关闭弹窗
     document.addEventListener('keydown', (e) => {
