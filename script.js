@@ -381,11 +381,26 @@
   const GIST_API = 'https://api.github.com';
   const GIST_FILE = 'nav-bookmarks.json';
 
+  // 你的个人默认 Gist ID —— 单人部署时填入，所有设备默认同步到这一个 Gist
+  // 留空则：用户首次启用同步时自动创建一个新 Gist（每人/每设备一个）
+  // 多用户/隐私场景：留空，让每位用户自带 Gist
+  const DEFAULT_GIST_ID = '***********'; // ← 替换成你自己的 Gist ID，例如 'abc123def456...'
+
   const loadSyncConfig = () => {
     try { return JSON.parse(localStorage.getItem(LS_SYNC)) || {}; }
     catch { return {}; }
   };
   const saveSyncConfig = (c) => localStorage.setItem(LS_SYNC, JSON.stringify(c));
+
+  // 有效 Gist ID：用户保存的 > 内置默认
+  const getGistId = () => {
+    const cfg = loadSyncConfig();
+    return (cfg.gistId && cfg.gistId.trim()) || (DEFAULT_GIST_ID.trim() || '');
+  };
+  const isUsingDefaultGist = () => {
+    const cfg = loadSyncConfig();
+    return !(cfg.gistId && cfg.gistId.trim()) && !!DEFAULT_GIST_ID.trim();
+  };
 
   const setSyncIndicator = (state, text) => {
     const el = $('#syncIndicator');
@@ -433,8 +448,9 @@
   const pullFromGist = async () => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
-    if (!cfg.gistId) throw new Error('没有 Gist ID，请先保存设置');
-    const data = await gistRequest('/gists/' + cfg.gistId);
+    const effectiveGistId = getGistId();
+    if (!effectiveGistId) throw new Error('没有可用的 Gist ID，请先保存设置或填入默认');
+    const data = await gistRequest('/gists/' + effectiveGistId);
     const file = data.files[GIST_FILE];
     if (!file) return null;
     let content = file.content || '';
@@ -455,15 +471,19 @@
   const pushToGist = async (bookmarks) => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
-    if (!cfg.gistId) {
-      cfg.gistId = await createGist(bookmarks);
-      saveSyncConfig(cfg);
-      const idEl = $('#ghGistId');
-      if (idEl) idEl.value = cfg.gistId;
-    } else {
-      await gistRequest('/gists/' + cfg.gistId, 'PATCH', {
+    const effectiveGistId = getGistId();
+    if (effectiveGistId) {
+      // 有 Gist ID（用户保存的或代码内置默认）→ 直接 PATCH
+      await gistRequest('/gists/' + effectiveGistId, 'PATCH', {
         files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } },
       });
+    } else {
+      // 没有任何 Gist ID → 创建新的并写回用户配置
+      const newId = await createGist(bookmarks);
+      cfg.gistId = newId;
+      saveSyncConfig(cfg);
+      const idEl = $('#ghGistId');
+      if (idEl) idEl.value = newId;
     }
     cfg.lastSync = Date.now();
     saveSyncConfig(cfg);
@@ -577,13 +597,26 @@
 
   const openSettings = () => {
     const cfg = loadSyncConfig();
+    const effectiveId = getGistId();
+    const hasDefault = !!DEFAULT_GIST_ID.trim();
+    const usingDefault = isUsingDefaultGist();
     $('#ghToken').value = cfg.token || '';
     $('#ghGistId').value = cfg.gistId || '';
+    $('#ghGistId').placeholder = hasDefault
+      ? `默认：${DEFAULT_GIST_ID.slice(0, 8)}…（留空使用）`
+      : '留空将自动创建私有 Gist';
     $('#enableSync').checked = !!cfg.enabled;
+    // 同步状态区显示当前生效的 Gist
+    let infoLine = '';
+    if (effectiveId) {
+      infoLine = usingDefault
+        ? `当前使用 内置默认 Gist (${effectiveId.slice(0, 8)}…)`
+        : `当前 Gist: ${effectiveId}`;
+    }
     if (cfg.lastSync) {
-      setSyncStatus('上次同步：' + new Date(cfg.lastSync).toLocaleString('zh-CN'), 'ok');
+      setSyncStatus(`上次同步：${new Date(cfg.lastSync).toLocaleString('zh-CN')}\n${infoLine}`, 'ok');
     } else if (cfg.token) {
-      setSyncStatus('已配置 Token', '');
+      setSyncStatus(`已配置 Token${infoLine ? '\n' + infoLine : ''}`, '');
     } else {
       setSyncStatus('未配置', '');
     }
@@ -595,13 +628,14 @@
     if (e) e.preventDefault();
     const cfg = loadSyncConfig();
     cfg.token = $('#ghToken').value.trim();
-    cfg.gistId = $('#ghGistId').value.trim();
+    // 用户填的优先；填的空字符串视为"使用默认"
+    const userGistId = $('#ghGistId').value.trim();
+    cfg.gistId = userGistId;
     cfg.enabled = $('#enableSync').checked;
     saveSyncConfig(cfg);
     showToast('设置已保存');
     if (cfg.enabled && cfg.token) {
-      // 第一次启用且没 Gist：先推一次创建
-      if (!cfg.gistId) doPush();
+      if (!getGistId()) doPush();  // 既无默认也无用户 ID → 推一次创建
       else doPull();
     } else {
       setSyncIndicator('', '');
