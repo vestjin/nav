@@ -11,6 +11,7 @@
   const LS_META = 'personal-nav-meta-v1'; // 抓取缓存：{ id: {title, icon, ts} }
   const LS_ENGINE = 'personal-nav-engine-v1';
   const LS_SYNC = 'personal-nav-sync-v1';  // { token, gistId, enabled, lastSync }
+  const LS_COLLAPSED = 'personal-nav-collapsed-v1'; // 折叠的分类名列表
   const CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 天
 
   // 预置搜索引擎
@@ -55,6 +56,20 @@
 
   const saveBookmarks = (list) => {
     localStorage.setItem(LS_KEY, JSON.stringify(list));
+  };
+
+  // 折叠状态：以 Set 形式存在内存，localStorage 存数组
+  let collapsedSet = new Set(
+    (() => { try { return JSON.parse(localStorage.getItem(LS_COLLAPSED)) || []; } catch { return []; } })()
+  );
+  const saveCollapsed = () => {
+    localStorage.setItem(LS_COLLAPSED, JSON.stringify(Array.from(collapsedSet)));
+  };
+  const isCollapsed = (cat) => collapsedSet.has(cat);
+  const toggleCollapsed = (cat) => {
+    if (collapsedSet.has(cat)) collapsedSet.delete(cat);
+    else collapsedSet.add(cat);
+    saveCollapsed();
   };
 
   const loadMeta = () => {
@@ -208,15 +223,19 @@
               </a>`;
           })
           .join('');
+        const collapsed = isCollapsed(cat);
         return `
-          <section class="category">
-            <div class="category-header">
+          <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}">
+            <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开">
               <div class="category-title">${escapeHtml(cat)}</div>
-              <div class="category-count">${
-                kw
-                  ? `${groups[cat].shown.length} / ${groups[cat].all.length}`
-                  : groups[cat].all.length
-              }</div>
+              <div class="category-meta">
+                <div class="category-count">${
+                  kw
+                    ? `${groups[cat].shown.length} / ${groups[cat].all.length}`
+                    : groups[cat].all.length
+                }</div>
+                <div class="category-toggle" aria-hidden="true">▸</div>
+              </div>
             </div>
             <div class="cards">${items}</div>
           </section>`;
@@ -241,6 +260,18 @@
 
   // ---------- 卡片事件（编辑/删除） ----------
   const onCardAction = (e) => {
+    // 折叠/展开分类（点击 header 区域，非按钮）
+    const header = e.target.closest('[data-toggle-category]');
+    if (header) {
+      const section = header.closest('.category');
+      const cat = section && section.dataset.category;
+      if (cat) {
+        toggleCollapsed(cat);
+        section.classList.toggle('collapsed');
+        header.setAttribute('aria-expanded', !section.classList.contains('collapsed'));
+      }
+      return;
+    }
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     // 阻止冒泡到外层 <a> 触发导航
@@ -257,7 +288,7 @@
         saveBookmarks(bookmarks);
         render($('#searchInput').value);
         showToast('已删除');
-        schedulePush();
+        markPending();
       }
     }
   };
@@ -302,7 +333,7 @@
     closeModal();
     render($('#searchInput').value);
     showToast('已保存');
-    schedulePush();
+    markPending();
     // 异步抓取新书签的元数据
     enrichAll(false);
   };
@@ -343,7 +374,7 @@
         render($('#searchInput').value);
         enrichAll(false);
         showToast(`已导入，共 ${bookmarks.length} 项`);
-        schedulePush();
+        markPending();
       } catch (err) {
         showToast('导入失败：' + err.message);
       }
@@ -489,57 +520,25 @@
     saveSyncConfig(cfg);
   };
 
-  let pushTimer = null;
   let syncing = false;
   let pendingPush = false;   // 本地有未推送的变更，期间禁止拉取覆盖
-  let queuedDuringSync = false;
 
-  const schedulePush = () => {
+  // 标记本地有未推送的修改（仅打标，不自动推送，避免触发 Gist API 频率限制）
+  const markPending = () => {
     if (!loadSyncConfig().enabled) return;
     pendingPush = true;
-    if (syncing) {
-      // 当前正在推送，把这次改动排队，等当前推送结束后再推一次
-      queuedDuringSync = true;
-      return;
-    }
-    clearTimeout(pushTimer);
-    pushTimer = setTimeout(executeScheduledPush, 1500);
-  };
-
-  const executeScheduledPush = async () => {
-    if (!loadSyncConfig().enabled) {
-      pendingPush = false;
-      return;
-    }
-    if (syncing) {
-      queuedDuringSync = true;
-      return;
-    }
-    syncing = true;
-    setSyncIndicator('syncing', '⏳');
-    try {
-      await pushToGist(bookmarks);
-      setSyncIndicator('synced', '✓');
-      setTimeout(() => setSyncIndicator('', ''), 1500);
-      pendingPush = false; // 推送成功，本地与云端一致
-    } catch (err) {
-      setSyncIndicator('error', '⚠');
-      setSyncStatus('推送失败：' + err.message, 'error');
-      // 推送失败保留 pendingPush=true，避免被拉取覆盖
-    } finally {
-      syncing = false;
-      if (queuedDuringSync) {
-        queuedDuringSync = false;
-        schedulePush();
-      }
-    }
+    setSyncIndicator('unsaved', '●');
+    setSyncStatus('本地有未推送的修改', 'busy');
   };
 
   const doPull = async (silent = false, force = false) => {
     if (syncing) return;
     if (pendingPush && !force) {
       // 本地有未推送的改动，不允许拉取覆盖（防删除"闪回"）
-      if (!silent) setSyncStatus('本地有未推送的修改，请先推送或等待…', 'busy');
+      if (!silent) {
+        setSyncIndicator('unsaved', '●');
+        setSyncStatus('本地有未推送的修改，请先点击「推送到 Gist」', 'busy');
+      }
       return;
     }
     syncing = true;
@@ -549,7 +548,10 @@
       const remote = await pullFromGist();
       // 拉取过程中用户可能又改了本地，再检查一次
       if (pendingPush && !force) {
-        if (!silent) setSyncStatus('本地有新修改，已取消本次拉取', 'busy');
+        if (!silent) {
+          setSyncIndicator('unsaved', '●');
+          setSyncStatus('本地有新修改，已取消本次拉取', 'busy');
+        }
         return;
       }
       if (remote === null) {
@@ -586,10 +588,12 @@
       setSyncStatus('已同步 · ' + new Date().toLocaleString('zh-CN'), 'ok');
       showToast('已推送到 Gist');
       setTimeout(() => setSyncIndicator('', ''), 1500);
+      pendingPush = false; // 推送成功，本地与云端一致
     } catch (err) {
       setSyncIndicator('error', '⚠');
       setSyncStatus('推送失败：' + err.message, 'error');
       showToast('推送失败：' + err.message);
+      // 推送失败保留 pendingPush=true
     } finally {
       syncing = false;
     }
@@ -703,6 +707,14 @@
 
     // 委托：卡片上的编辑/删除
     $('#navContainer').addEventListener('click', onCardAction);
+    // 分类 header 键盘操作（回车/空格 折叠）
+    $('#navContainer').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const header = e.target.closest('[data-toggle-category]');
+      if (!header) return;
+      e.preventDefault();
+      header.click();
+    });
 
     // ESC 关闭弹窗
     document.addEventListener('keydown', (e) => {

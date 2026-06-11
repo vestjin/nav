@@ -112,6 +112,7 @@ const DEFAULT_GIST_ID = '你的默认GistID';
 | `Ctrl` / `⌘` + `K` | 聚焦书签搜索框 |
 | `Esc` | 关闭弹窗 |
 | `Enter`（网页搜索框） | 在选中引擎中搜索 |
+| 点击分类标题 | 收起 / 展开该分类 |
 
 ## 📁 文件结构
 
@@ -140,6 +141,7 @@ nav/
 | 抓取缓存 | `localStorage[personal-nav-meta-v1]` | favicon + 标题，7 天 TTL |
 | 引擎选择 | `localStorage[personal-nav-engine-v1]` | 上次用的搜索引擎 |
 | 同步配置 | `localStorage[personal-nav-sync-v1]` | Token + Gist ID |
+| 折叠状态 | `localStorage[personal-nav-collapsed-v1]` | 折叠的分类名数组 |
 | 云端备份 | GitHub Gist（私有） | 多设备同步 |
 | 离线缓存 | Cache Storage | PWA 离线访问（SW 管理） |
 
@@ -243,7 +245,7 @@ SW 默认从缓存读，且只在新 SW `install` 后才接管。两种方式：
 <details>
 <summary><b>删除书签后"闪回"又出现？</b></summary>
 
-已修复。原因是 `confirm` 弹窗关闭触发 `focus` 事件 → 自动拉取旧 Gist 数据。代码用 `pendingPush` 守卫 + 推送期间变更排队机制解决。
+已修复。原因是 `confirm` 弹窗关闭触发 `focus` 事件 → 自动拉取旧 Gist 数据。代码用 `pendingPush` 守卫机制解决；同步现在是手动的，所以「闪回」问题不会再发生。
 </details>
 
 <details>
@@ -256,7 +258,7 @@ SW 默认从缓存读，且只在新 SW `install` 后才接管。两种方式：
 <details>
 <summary><b>多设备冲突，最后写入的会覆盖另一台？</b></summary>
 
-是。当前是 **last-write-wins** 策略。日常使用几乎不会冲突（推送 1.5s 防抖 + 切回标签自动拉取）。如对冲突敏感，编辑前在同步设置里点 ⬇ 拉取一次。
+是。当前是 **last-write-wins** 策略。**所有同步都是手动的**（避免触发 Gist API 频率限制）：编辑后需在同步设置里点 ⬆ 推送；其他设备的改动需点 ⬇ 拉取。如对冲突敏感，编辑前先点 ⬇ 拉取一次。
 </details>
 
 <details>
@@ -274,13 +276,13 @@ location.reload();
 ## 🚧 路线图
 
 - [x] ~~PWA：manifest + service worker，支持安装到桌面 / 完全离线~~
+- [x] ~~分组折叠：分类可收起 / 展开~~
 - [ ] 多 Gist 切换：工作 / 生活 / 学习 分组同步
 - [ ] 拖拽排序：分类与卡片
 - [ ] 暗色模式：`prefers-color-scheme: dark`
 - [ ] 导入浏览器书签：解析 Chrome / Firefox 的 `bookmarks.html`
 - [ ] 快捷键直达：输入 `gh` 回车直达 GitHub
 - [ ] 图标本地缓存：favicon 转 base64 存 localStorage
-- [ ] 分组折叠：分类可收起 / 展开
 
 ## 📜 许可
 
