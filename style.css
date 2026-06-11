@@ -484,6 +484,31 @@ button { font: inherit; }
 
 .settings-actions { flex-wrap: wrap; }
 
+/* ============== Update Toast ============== */
+.update-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  padding: 8px 8px 8px 16px;
+  font-size: 13px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  z-index: 1000;
+  animation: updateSlideUp 0.25s ease-out;
+}
+.update-toast button { white-space: nowrap; }
+@keyframes updateSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* ============== Toast ============== */
 .toast {
   position: fixed;

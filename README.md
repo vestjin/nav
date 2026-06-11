@@ -1,17 +1,20 @@
 # 个人导航页
 
-> 轻量、零依赖、跨设备同步的个人导航首页。4 个文件，~44 KB，无构建步骤。
+> 轻量、零依赖、跨设备同步的个人导航首页。支持 PWA 安装到桌面 / 完全离线。10 个文件，~92 KB，无构建步骤。
 
 ![license](https://img.shields.io/badge/license-MIT-green)
+![size](https://img.shields.io/badge/size-92%20KB-blue)
 ![deps](https://img.shields.io/badge/deps-0-success)
+![pwa](https://img.shields.io/badge/PWA-ready-blueviolet)
 
 ## ✨ 特性
 
 - **零依赖、零构建** — 双击 `index.html` 就能用
+- **PWA 支持** — 安装到桌面 / 移动主屏，完全离线可用
 - **多设备同步** — 通过 GitHub Gist 跨浏览器同步书签，**无需自建服务器**
 - **自动抓取** — 自动获取 favicon 和页面标题，缓存 7 天
 - **护眼主题** — 米黄配色，长时间使用不刺眼
-- **极速加载** — 首屏 < 15 KB（gzip），无重动画
+- **极速加载** — 首屏 < 20 KB（gzip），Service Worker 缓存后接近 0 ms
 - **完整 CRUD** — 增删改查、搜索、导入导出
 - **响应式** — 桌面 / 平板 / 手机自适应
 - **隐私优先** — 数据存在你的浏览器或你的私有 Gist，不经过第三方
@@ -32,7 +35,7 @@ npx serve .
 # 然后访问 http://localhost:8000
 ```
 
-> 💡 `file://` 协议下抓取页面标题会被浏览器拦截（CORS），**用本地 http 服务即可解决**。Favicon 不受影响。
+> 💡 `file://` 协议下抓取页面标题会被浏览器拦截（CORS），**用本地 http 服务即可解决**。Service Worker 也仅在 `http(s)://` / `localhost` 下注册。
 
 ### 部署到 GitHub Pages
 
@@ -50,6 +53,26 @@ git push -u origin main
 进入仓库 **Settings → Pages → Build and deployment → Branch: `main` / `/ (root)` → Save**。
 
 几分钟后即可访问 `https://<你的用户名>.github.io/nav-page/`。
+
+## 📲 安装为 PWA
+
+部署到 `https://` 后（GitHub Pages 自动满足），可安装到桌面 / 主屏：
+
+| 平台 | 安装方式 |
+| --- | --- |
+| **Chrome / Edge (桌面)** | 地址栏右侧出现 `⊕` 安装按钮，或菜单 → "安装 个人导航" |
+| **Android (Chrome)** | 菜单 → "添加到主屏幕" / "安装应用" |
+| **iOS Safari** | 分享 → "添加到主屏幕" |
+| **macOS Safari** | 文件 → "添加到 Dock" |
+
+安装后：
+- 像原生 App 一样独立窗口运行（无浏览器 UI）
+- 离线完全可用
+- 点击图标直达，不显示浏览器启动页
+
+当代码更新后再次访问，页面底部会出现 **"新版本已就绪"** 提示，点"刷新"即可生效。
+
+> ⚠️ PWA 功能需要 **HTTPS**（GitHub Pages 默认提供）。本地 `file://` 或 `http://` 局域网调试时浏览器会跳过安装。
 
 ## ☁️ 配置云同步（可选）
 
@@ -94,10 +117,15 @@ const DEFAULT_GIST_ID = '你的默认GistID';
 
 ```
 nav/
-├── index.html  ( 6 KB)   - 页面骨架，含搜索/同步/书签弹窗
-├── style.css   (12 KB)   - 护眼主题，CSS 变量驱动，响应式
-├── data.js     ( 3 KB)   - 默认书签（出厂种子，可自定义）
-├── script.js   (28 KB)   - 所有交互逻辑（IIFE 闭包，无全局污染）
+├── index.html  ( 6 KB)   - 页面骨架
+├── style.css   (13 KB)   - 护眼主题，CSS 变量驱动
+├── data.js     ( 3 KB)   - 默认书签（出厂种子）
+├── script.js   (29 KB)   - 所有交互逻辑
+├── sw.js       ( 4 KB)   - Service Worker（离线缓存）
+├── manifest.webmanifest   - PWA 配置
+├── icon-192.png / icon-512.png  - 应用图标
+├── icon-maskable-512.png        - Android 圆形蒙版图标
+├── apple-touch-icon.png         - iOS 主屏图标
 ├── LICENSE
 └── README.md
 ```
@@ -113,10 +141,12 @@ nav/
 | 引擎选择 | `localStorage[personal-nav-engine-v1]` | 上次用的搜索引擎 |
 | 同步配置 | `localStorage[personal-nav-sync-v1]` | Token + Gist ID |
 | 云端备份 | GitHub Gist（私有） | 多设备同步 |
+| 离线缓存 | Cache Storage | PWA 离线访问（SW 管理） |
 
 **首次打开**：用 `data.js` 的 `DEFAULT_BOOKMARKS` 种子初始化 localStorage。
 **之后**：所有操作直接写 localStorage，不再读 `data.js`。
 **跨设备**：通过 Gist 同步（最后写入获胜策略）。
+**离线**：Service Worker 缓存所有静态资源，断网仍可访问本地书签。
 
 ## 🔧 自定义
 
@@ -158,6 +188,12 @@ window.DEFAULT_BOOKMARKS = [
 }
 ```
 
+> 修改 `--primary` 后，记得同步修改 `manifest.webmanifest` 里的 `theme_color` 和 `background_color`，PWA 启动画面和状态栏才会跟着变色。
+
+### 替换 PWA 图标
+
+把 `icon-192.png` / `icon-512.png` / `icon-maskable-512.png` 替换成你自己的设计（保持文件名和尺寸）。**maskable 图标**四周要留 ~10% 安全区，避免被系统裁掉内容。
+
 ### 添加更多搜索引擎
 
 `script.js` 中：
@@ -190,6 +226,21 @@ const ENGINES = {
 </details>
 
 <details>
+<summary><b>Service Worker 没注册？</b></summary>
+
+SW 需要 `https://` / `localhost` / `127.0.0.1`。`file://` 协议下浏览器直接拒绝注册。
+</details>
+
+<details>
+<summary><b>改了代码，刷新后还是旧版本？</b></summary>
+
+SW 默认从缓存读，且只在新 SW `install` 后才接管。两种方式：
+1. 等待底部"新版本已就绪"提示 → 点"刷新"
+2. 强制更新：F12 → Application → Service Workers → **Update on reload** 勾上，然后 Ctrl+Shift+R
+3. 部署新版本时，把 `sw.js` 第 14 行 `CACHE_VERSION` 加 1（如 `nav-v1` → `nav-v2`）
+</details>
+
+<details>
 <summary><b>删除书签后"闪回"又出现？</b></summary>
 
 已修复。原因是 `confirm` 弹窗关闭触发 `focus` 事件 → 自动拉取旧 Gist 数据。代码用 `pendingPush` 守卫 + 推送期间变更排队机制解决。
@@ -213,14 +264,16 @@ const ENGINES = {
 
 F12 打开控制台执行：
 ```js
-localStorage.clear(); location.reload();
+localStorage.clear();
+caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+location.reload();
 ```
 或用页面上的 ⬇ 导出 → 备份 JSON → ⬆ 导入。
 </details>
 
 ## 🚧 路线图
 
-- [ ] PWA：manifest + service worker，支持安装到桌面 / 完全离线
+- [x] ~~PWA：manifest + service worker，支持安装到桌面 / 完全离线~~
 - [ ] 多 Gist 切换：工作 / 生活 / 学习 分组同步
 - [ ] 拖拽排序：分类与卡片
 - [ ] 暗色模式：`prefers-color-scheme: dark`
