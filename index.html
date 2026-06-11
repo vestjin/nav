@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>个人导航</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>" />
+  <link rel="preconnect" href="https://www.google.com" crossorigin />
+  <link rel="dns-prefetch" href="https://api.allorigins.win" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <span class="logo">🚀</span>
+      <h1>个人导航</h1>
+      <span id="totalCount" class="total-count" title="书签总数">0</span>
+    </div>
+
+    <div class="header-actions">
+      <form id="webSearch" class="web-search" target="_blank" rel="noopener noreferrer">
+        <span class="search-icon">🌐</span>
+        <input id="webQuery" type="text" placeholder="网页搜索…" autocomplete="off" name="q" />
+        <select id="webEngine" title="选择搜索引擎" aria-label="搜索引擎">
+          <option value="bing">Bing</option>
+          <option value="google">Google</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+          <option value="yandex">Yandex</option>
+        </select>
+        <button type="submit" class="web-go" title="搜索">→</button>
+      </form>
+
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input id="searchInput" type="text" placeholder="搜索书签 / 网址 / 标题…" autocomplete="off" />
+        <button id="clearSearch" class="clear-btn" title="清空">✕</button>
+      </div>
+      <button id="addBtn" class="icon-btn" title="添加书签">＋</button>
+      <button id="importBtn" class="icon-btn" title="导入">⬆</button>
+      <button id="exportBtn" class="icon-btn" title="导出">⬇</button>
+      <button id="refreshBtn" class="icon-btn" title="刷新抓取">⟳</button>
+      <button id="syncBtn" class="icon-btn" title="云同步设置">☁</button>
+      <span id="syncIndicator" class="sync-indicator" title="同步状态"></span>
+    </div>
+  </header>
+
+  <main id="navContainer" class="nav-container"></main>
+
+  <footer class="footer">
+    <span>©2022 - <span id="year"></span> 个人导航 · 部署在 GitHub Pages</span>
+    <span class="tip">数据自动抓取 · 本地存储</span>
+  </footer>
+
+  <!-- 添加/编辑书签弹窗 -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="modalTitle">添加书签</h2>
+      <form id="bookmarkForm">
+        <input type="hidden" id="bmId" />
+        <label>
+          名称
+          <input id="bmName" type="text" placeholder="可选，留空将自动抓取" />
+        </label>
+        <label>
+          网址 *
+          <input id="bmUrl" type="url" required placeholder="https://example.com" />
+        </label>
+        <label>
+          分类
+          <input id="bmCategory" type="text" placeholder="例如：常用 / 工具 / 学习" list="categoryList" />
+          <datalist id="categoryList"></datalist>
+        </label>
+        <label>
+          图标 URL（可选）
+          <input id="bmIcon" type="url" placeholder="留空将自动抓取 favicon" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="cancelBtn" class="btn ghost">取消</button>
+          <button type="submit" class="btn primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 云同步设置弹窗 -->
+  <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2>云同步设置</h2>
+      <p class="settings-hint">使用 GitHub Gist 跨设备同步书签。<a href="https://github.com/settings/tokens/new?scopes=gist&description=Personal%20Nav%20Sync" target="_blank" rel="noopener noreferrer">创建 Token（仅需 Gists 权限）</a></p>
+      <form id="settingsForm">
+        <label>
+          GitHub Token
+          <input id="ghToken" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+        </label>
+        <label>
+          Gist ID
+          <input id="ghGistId" type="text" placeholder="留空将自动创建私有 Gist" readonly />
+        </label>
+        <label class="checkbox-label">
+          <input id="enableSync" type="checkbox" />
+          启用云同步
+        </label>
+        <div id="syncStatus" class="sync-status">未配置</div>
+        <div class="modal-actions settings-actions">
+          <button type="button" id="pullNow" class="btn" title="从 Gist 拉取覆盖本地">⬇ 拉取</button>
+          <button type="button" id="pushNow" class="btn" title="把本地推送到 Gist">⬆ 推送</button>
+          <button type="button" id="cancelSettings" class="btn ghost">关闭</button>
+          <button type="submit" class="btn primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast 提示 -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
