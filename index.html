@@ -86,7 +86,7 @@
   <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2>云同步设置</h2>
-      <p class="settings-hint">使用 GitHub Gist 跨设备同步书签。<a href="https://github.com/settings/tokens/new?scopes=gist&description=Personal%20Nav%20Sync" target="_blank" rel="noopener noreferrer">创建 Token（仅需 Gists 权限）</a></p>
+      <p class="settings-hint">使用 GitHub Gist 跨设备同步书签。<a href="https://github.com/settings/tokens/new?scopes=gist&description=Personal%20Nav%20Sync" target="_blank" rel="noopener noreferrer">创建 Token（仅需 Gists 权限）</a> · 留空 Gist ID 时使用代码内置的默认 ID（适合单人部署）。</p>
       <form id="settingsForm">
         <label>
           GitHub Token
@@ -94,7 +94,7 @@
         </label>
         <label>
           Gist ID
-          <input id="ghGistId" type="text" placeholder="留空将自动创建私有 Gist" readonly />
+          <input id="ghGistId" type="text" placeholder="留空使用默认 Gist（仅自己用）或自动创建" />
         </label>
         <label class="checkbox-label">
           <input id="enableSync" type="checkbox" />
