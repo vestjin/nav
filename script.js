@@ -729,6 +729,55 @@
     $('#year').textContent = new Date().getFullYear();
   };
 
+  // ---------- Service Worker 注册 ----------
+  const registerSW = () => {
+    if (!('serviceWorker' in navigator)) return;
+    // 仅在 https / localhost / 127.0.0.1 注册（file:// 不支持）
+    if (!/^https?:$/.test(location.protocol) && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
+
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // 检查更新
+      reg.update().catch(() => {});
+
+      // 有新版本等待激活时，提示用户
+      reg.addEventListener('updatefound', () => {
+        const newSw = reg.installing;
+        if (!newSw) return;
+        newSw.addEventListener('statechange', () => {
+          if (newSw.state === 'installed' && navigator.serviceWorker.controller) {
+            // 新 SW 已就绪，但旧 SW 还在控制页面
+            showUpdateToast();
+          }
+        });
+      });
+    }).catch((err) => {
+      console.warn('[SW] 注册失败:', err);
+    });
+
+    // 收到 skipWaiting 后页面会自动 reload 一次（拿到新 SW）
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+  };
+
+  const showUpdateToast = () => {
+    const t = document.createElement('div');
+    t.className = 'update-toast';
+    t.innerHTML = `
+      <span>新版本已就绪</span>
+      <button type="button" class="btn primary" style="padding:4px 12px;font-size:12px;">刷新</button>
+    `;
+    t.querySelector('button').addEventListener('click', () => {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        reg && reg.waiting && reg.waiting.postMessage('SKIP_WAITING');
+      });
+    });
+    document.body.appendChild(t);
+  };
+
   // ---------- 启动 ----------
   const init = () => {
     bindEvents();
@@ -743,6 +792,8 @@
     } else {
       setTimeout(() => enrichAll(false), 300);
     }
+    // 注册 Service Worker（不阻塞首屏）
+    setTimeout(registerSW, 100);
   };
 
   document.addEventListener('DOMContentLoaded', init);
