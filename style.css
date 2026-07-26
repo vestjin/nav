@@ -117,7 +117,7 @@ button { font: inherit; }
 
 .main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 
-/* ============== 放大的时钟样式 ============== */
+/* ============== 大时钟 ============== */
 .clock-wrap {
   display: flex; flex-direction: column; align-items: center;
   gap: 10px; padding: 10px 0 4px; cursor: pointer;
@@ -125,8 +125,7 @@ button { font: inherit; }
 }
 
 .clock-time {
-  font-size: 110px; /* 从 76px 放大到 110px */
-  font-weight: 700; color: var(--text);
+  font-size: 110px; font-weight: 700; color: var(--text);
   font-variant-numeric: tabular-nums; letter-spacing: 6px;
   line-height: 1; padding: 18px 36px;
   background: var(--card); border: 1px solid var(--border);
@@ -134,35 +133,31 @@ button { font: inherit; }
 }
 
 .clock-date {
-  font-size: 18px; /* 从 14px 放大到 18px */
-  color: var(--text-dim);
+  font-size: 18px; color: var(--text-dim);
   font-variant-numeric: tabular-nums; letter-spacing: 2px;
   margin-top: 4px;
 }
 
-/* ============== 放大的搜索框样式 ============== */
+/* ============== 大搜索框 ============== */
 .search-bar {
   position: relative; display: flex; align-items: center;
-  height: 60px; /* 从 44px 放大到 60px */
-  background: var(--card); border: 1px solid var(--border);
+  height: 60px; background: var(--card); border: 1px solid var(--border);
   border-radius: 999px; padding: 0 8px 0 56px;
   transition: transform 0.3s ease, border-color 0.15s, box-shadow 0.15s;
-  max-width: 720px; width: 100%; margin: 0 auto;
-  margin-top: 10px;
+  max-width: 720px; width: 100%; margin: 10px auto 0;
 }
 .search-bar:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
 
 .search-bar .search-icon {
   position: absolute; left: 20px; top: 50%;
-  transform: translateY(-50%); font-size: 22px; /* 从 14px 放大 */
+  transform: translateY(-50%); font-size: 22px;
   color: var(--text-dim); pointer-events: none;
 }
 
 .search-bar input {
   flex: 1; height: 100%; min-width: 0;
   background: transparent; border: none; outline: none;
-  color: var(--text); font-size: 18px; /* 从 14px 放大 */
-  padding: 0 12px;
+  color: var(--text); font-size: 18px; padding: 0 12px;
 }
 .search-bar input::placeholder { color: var(--text-dim); }
 
@@ -418,22 +413,40 @@ body.focus-mode .main { flex: 1; justify-content: center; }
 body.focus-mode .clock-wrap { transform: scale(1.2); margin-bottom: 80px; }
 body.focus-mode .search-bar { transform: scale(1.15); }
 
+/* ============== 响应式：窄屏保持左右分栏 ============== */
 @media (max-width: 860px) {
-  .layout { grid-template-columns: 1fr; gap: 14px; }
-  .sidebar { position: static; max-height: none; padding: 10px 10px 8px; }
-  .sidebar-title { padding: 0 4px 8px; margin-bottom: 6px; }
-  .category-nav { flex-direction: row; overflow-x: auto; flex-wrap: nowrap; gap: 6px; padding-bottom: 4px; scrollbar-width: thin; }
-  .cat-item { flex-shrink: 0; padding: 6px 12px; }
-  
-  /* 移动端时钟与搜索框等比缩小 */
-  .clock-time { font-size: 72px; padding: 12px 24px; letter-spacing: 4px; }
-  .clock-date { font-size: 14px; }
-  .search-bar { height: 50px; padding-left: 48px; }
-  .search-bar .search-icon { left: 16px; font-size: 18px; }
-  .search-bar input { font-size: 15px; }
-  .clear-btn { width: 26px; height: 26px; font-size: 14px; }
-  .search-bar select { height: 36px; font-size: 13px; }
-  .search-go { width: 38px; height: 38px; font-size: 16px; }
+  .layout {
+    grid-template-columns: 120px 1fr; 
+    gap: 14px;
+  }
+  .sidebar {
+    position: static;
+    max-height: 300px;
+    padding: 10px 6px;
+  }
+  .sidebar-title {
+    font-size: 10px;
+    padding: 0 4px 8px;
+    margin-bottom: 6px;
+  }
+  .category-nav {
+    flex-direction: column;
+    overflow-x: visible;
+    gap: 2px;
+  }
+  .cat-item {
+    flex-shrink: 0;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .clock-time { font-size: 56px; padding: 12px 20px; letter-spacing: 4px; }
+  .clock-date { font-size: 12px; }
+  .search-bar { height: 48px; padding-left: 44px; }
+  .search-bar .search-icon { left: 14px; font-size: 16px; }
+  .search-bar input { font-size: 14px; }
+  .clear-btn { width: 26px; height: 26px; font-size: 12px; }
+  .search-bar select { height: 34px; font-size: 12px; }
+  .search-go { width: 36px; height: 36px; font-size: 14px; }
 
   body.focus-mode .clock-wrap { transform: scale(1.0); margin-bottom: 40px; }
   body.focus-mode .search-bar { transform: scale(1.0); }
@@ -449,8 +462,9 @@ body.focus-mode .search-bar { transform: scale(1.15); }
   .card-icon { width: 30px; height: 30px; }
   .card-name { font-size: 11px; }
   .footer { font-size: 10px; }
-  .clock-time { font-size: 56px; padding: 8px 18px; letter-spacing: 3px; }
-  .clock-date { font-size: 12px; }
+  .clock-time { font-size: 42px; padding: 8px 14px; letter-spacing: 3px; }
+  .clock-date { font-size: 10px; }
+  .layout { grid-template-columns: 100px 1fr; }
 }
 
 .sidebar::-webkit-scrollbar { width: 6px; }

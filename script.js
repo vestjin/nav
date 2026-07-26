@@ -1,5 +1,8 @@
 /* =========================================================
- * 个人导航页 - 主逻辑
+ * 个人导航页 - 主逻辑 (性能优化版)
+ * - 首屏秒出：不等待 Gist 和代理抓取
+ * - 限流并发：避免阻塞主线程
+ * - 国内优化：更换 favicon 源，代理加超时
  * ========================================================= */
 (function () {
   'use strict';
@@ -21,8 +24,6 @@
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-
   const showToast = (msg, ms = 1800) => {
     const el = $('#toast');
     el.textContent = msg;
@@ -55,7 +56,12 @@
   const loadMeta = () => { try { return JSON.parse(localStorage.getItem(LS_META)) || {}; } catch { return {}; } };
   const saveMeta = (m) => localStorage.setItem(LS_META, JSON.stringify(m));
 
-  const buildFaviconUrl = (pageUrl) => { const host = safeHost(pageUrl); if (!host) return ''; return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`; };
+  // 优化：使用国内可直连的 favicon 服务，避免 Google s2 在国内超时
+  const buildFaviconUrl = (pageUrl) => {
+    const host = safeHost(pageUrl);
+    if (!host) return '';
+    return `https://favicon.im/${encodeURIComponent(host)}?larger=true`;
+  };
 
   const TITLE_PROXIES = [
     (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
@@ -72,11 +78,15 @@
     return '';
   };
 
+  // 优化：加入 4s 超时机制，防止单个慢代理拖垮整批抓取
   const fetchTitle = async (pageUrl) => {
     for (const build of TITLE_PROXIES) {
       try {
         const endpoint = build(pageUrl);
-        const res = await fetch(endpoint, { method: 'GET' });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s 超时
+        const res = await fetch(endpoint, { method: 'GET', signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) continue;
         const ct = res.headers.get('content-type') || '';
         let html = '';
@@ -84,7 +94,7 @@
         else { html = await res.text(); }
         const title = extractTitle(typeof html === 'string' ? html : '');
         if (title) return title;
-      } catch (e) {}
+      } catch (e) { continue; }
     }
     return '';
   };
@@ -481,17 +491,25 @@
     await Promise.all(workers);
     return results;
   };
+  
+  // 优化：只抓取缺失项，降低并发到 2，去除首屏 toast 闪动
   const enrichAll = async (force = false) => {
-    showToast('开始抓取元数据…');
-    await runWithConcurrency(bookmarks, 4, (bm) => enrichBookmark(bm, force));
+    const meta = loadMeta();
+    const targets = bookmarks.filter((bm) => {
+      if (force) return true;
+      const c = meta[bm.id];
+      const expired = !c || !c.ts || Date.now() - c.ts > CACHE_TTL;
+      return (!bm.name && (!c || !c.title)) || (!bm.icon && (!c || !c.icon)) || expired;
+    });
+    if (targets.length === 0) return;
+    await runWithConcurrency(targets, 2, (bm) => enrichBookmark(bm, force));
     render($('#searchInput').value);
-    showToast('抓取完成');
   };
 
   // 云同步
   const GIST_API = 'https://api.github.com';
   const GIST_FILE = 'nav-bookmarks.json';
-  const DEFAULT_GIST_ID = '***********';
+  const DEFAULT_GIST_ID = '***********'; // 替换为你的 Gist ID
   const loadSyncConfig = () => { try { return JSON.parse(localStorage.getItem(LS_SYNC)) || {}; } catch { return {}; } };
   const saveSyncConfig = (c) => localStorage.setItem(LS_SYNC, JSON.stringify(c));
   const getGistId = () => { const cfg = loadSyncConfig(); return (cfg.gistId && cfg.gistId.trim()) || (DEFAULT_GIST_ID.trim() || ''); };
@@ -610,14 +628,12 @@
     else { setSyncIndicator('', ''); }
   };
 
-  // 事件绑定
   const bindEvents = () => {
     const engineSel = $('#webEngine');
     const savedEngine = localStorage.getItem(LS_ENGINE);
     if (savedEngine && ENGINES[savedEngine]) engineSel.value = savedEngine;
     engineSel.addEventListener('change', () => { localStorage.setItem(LS_ENGINE, engineSel.value); });
 
-    // 点击时钟进入专注模式
     const clockToggle = $('#clockToggle');
     if (clockToggle) {
       clockToggle.addEventListener('click', () => {
@@ -642,7 +658,7 @@
     $('#bookmarkForm').addEventListener('submit', onFormSubmit);
     $('#importBtn').addEventListener('click', importData);
     $('#exportBtn').addEventListener('click', exportData);
-    $('#refreshBtn').addEventListener('click', () => enrichAll(true));
+    $('#refreshBtn').addEventListener('click', () => { showToast('开始抓取元数据…'); enrichAll(true).then(() => showToast('抓取完成')); });
 
     $('#syncBtn').addEventListener('click', openSettings);
     $('#cancelSettings').addEventListener('click', closeSettings);
@@ -682,11 +698,13 @@
     $('#year').textContent = new Date().getFullYear();
   };
 
-  // Service Worker 注册
   const registerSW = () => {
     if (!('serviceWorker' in navigator)) return;
     if (!/^https?:$/.test(location.protocol) && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
     navigator.serviceWorker.register('sw.js').then((reg) => {
+      if (reg.navigationPreload) {
+        reg.navigationPreload.enable();
+      }
       reg.update().catch(() => {});
       reg.addEventListener('updatefound', () => {
         const newSw = reg.installing;
@@ -705,17 +723,36 @@
     document.body.appendChild(t);
   };
 
-  // 启动
+  // ---------- 启动：首屏优先 ----------
   const init = () => {
     bindEvents();
-    // 启动大时钟
+    
+    // 1. 时钟立即启动（不依赖任何网络）
     tickClock();
     setInterval(tickClock, 1000);
+
+    // 2. 立即用本地数据渲染首屏（侧栏秒出）
     render('');
-    if (loadSyncConfig().enabled && loadSyncConfig().token) { doPull(true); }
-    if ('requestIdleCallback' in window) { requestIdleCallback(() => enrichAll(false), { timeout: 1500 }); }
-    else { setTimeout(() => enrichAll(false), 300); }
-    setTimeout(registerSW, 100);
+
+    // 3. 将网络请求推迟到首屏渲染完毕、浏览器空闲时执行
+    const startBackgroundTasks = () => {
+      const cfg = loadSyncConfig();
+      if (cfg.enabled && cfg.token) {
+        // 静默拉取，失败不阻塞本地使用
+        doPull(true).catch(() => {});
+      }
+      // 只抓缺失的元数据
+      enrichAll(false);
+    };
+
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(startBackgroundTasks, { timeout: 2000 });
+    } else {
+      setTimeout(startBackgroundTasks, 500);
+    }
+
+    // 4. Service Worker 延迟注册，避免与首屏资源竞争
+    setTimeout(registerSW, 300);
   };
 
   document.addEventListener('DOMContentLoaded', init);
