@@ -1,30 +1,26 @@
 /* =========================================================
- *  个人导航页 - 主逻辑
- *  - 自动抓取 favicon 与页面标题
- *  - 本地存储用户增删的书签
- *  - 支持搜索 / 导入 / 导出 / 刷新
+ * 个人导航页 - 主逻辑
  * ========================================================= */
 (function () {
   'use strict';
 
   const LS_KEY = 'personal-nav-bookmarks-v1';
-  const LS_META = 'personal-nav-meta-v1'; // 抓取缓存：{ id: {title, icon, ts} }
+  const LS_META = 'personal-nav-meta-v1';
   const LS_ENGINE = 'personal-nav-engine-v1';
-  const LS_SYNC = 'personal-nav-sync-v1';  // { token, gistId, enabled, lastSync }
-  const LS_COLLAPSED = 'personal-nav-collapsed-v1'; // 折叠的分类名列表
-  const LS_CAT_ORDER = 'personal-nav-cat-order-v1'; // 分类显示顺序
-  const CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 天
+  const LS_SYNC = 'personal-nav-sync-v1';
+  const LS_COLLAPSED = 'personal-nav-collapsed-v1';
+  const LS_CAT_ORDER = 'personal-nav-cat-order-v1';
+  const LS_CURRENT_CAT = 'personal-nav-current-cat-v1';
+  const CACHE_TTL = 1000 * 60 * 60 * 24 * 7;
 
-  // 预置搜索引擎
   const ENGINES = {
-    bing:       { name: 'Bing',       url: (q) => `https://www.bing.com/search?q=${encodeURIComponent(q)}` },
-    google:     { name: 'Google',     url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}` },
+    bing: { name: 'Bing', url: (q) => `https://www.bing.com/search?q=${encodeURIComponent(q)}` },
+    google: { name: 'Google', url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}` },
     duckduckgo: { name: 'DuckDuckGo', url: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}` },
-    yandex:     { name: 'Yandex',     url: (q) => `https://yandex.com/search/?text=${encodeURIComponent(q)}` },
+    yandex: { name: 'Yandex', url: (q) => `https://yandex.com/search/?text=${encodeURIComponent(q)}` },
   };
 
-  // ---------- 工具 ----------
-  const $  = (sel, root = document) => root.querySelector(sel);
+  const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   const showToast = (msg, ms = 1800) => {
@@ -36,71 +32,31 @@
   };
 
   const uid = () => 'bm-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const safeHost = (url) => { try { return new URL(url).host; } catch { return url; } };
+  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  const safeHost = (url) => {
-    try { return new URL(url).host; } catch { return url; }
-  };
-
-  const escapeHtml = (s) =>
-    String(s).replace(/[&<>"']/g, (c) => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
-
-  // ---------- 存储 ----------
   const loadBookmarks = () => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch (e) { /* ignore */ }
+    try { const raw = localStorage.getItem(LS_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
     return (window.DEFAULT_BOOKMARKS || []).map((b) => ({ ...b }));
   };
+  const saveBookmarks = (list) => localStorage.setItem(LS_KEY, JSON.stringify(list));
 
-  const saveBookmarks = (list) => {
-    localStorage.setItem(LS_KEY, JSON.stringify(list));
-  };
-
-  // 折叠状态：以 Set 形式存在内存，localStorage 存数组
-  let collapsedSet = new Set(
-    (() => { try { return JSON.parse(localStorage.getItem(LS_COLLAPSED)) || []; } catch { return []; } })()
-  );
-  const saveCollapsed = () => {
-    localStorage.setItem(LS_COLLAPSED, JSON.stringify(Array.from(collapsedSet)));
-  };
+  let collapsedSet = new Set((() => { try { return JSON.parse(localStorage.getItem(LS_COLLAPSED)) || []; } catch { return []; } })());
+  const saveCollapsed = () => localStorage.setItem(LS_COLLAPSED, JSON.stringify(Array.from(collapsedSet)));
   const isCollapsed = (cat) => collapsedSet.has(cat);
-  const toggleCollapsed = (cat) => {
-    if (collapsedSet.has(cat)) collapsedSet.delete(cat);
-    else collapsedSet.add(cat);
-    saveCollapsed();
-  };
+  const toggleCollapsed = (cat) => { if (collapsedSet.has(cat)) collapsedSet.delete(cat); else collapsedSet.add(cat); saveCollapsed(); };
 
-  // 分类显示顺序：localStorage 存数组；首次使用时 "常用" 排第一
-  let categoryOrder = (() => {
-    try {
-      const arr = JSON.parse(localStorage.getItem(LS_CAT_ORDER));
-      return Array.isArray(arr) ? arr : [];
-    } catch { return []; }
-  })();
-  const saveCategoryOrder = () => {
-    localStorage.setItem(LS_CAT_ORDER, JSON.stringify(categoryOrder));
-  };
+  let categoryOrder = (() => { try { const arr = JSON.parse(localStorage.getItem(LS_CAT_ORDER)); return Array.isArray(arr) ? arr : []; } catch { return []; } })();
+  const saveCategoryOrder = () => localStorage.setItem(LS_CAT_ORDER, JSON.stringify(categoryOrder));
 
-  const loadMeta = () => {
-    try { return JSON.parse(localStorage.getItem(LS_META)) || {}; }
-    catch { return {}; }
-  };
+  let currentCategory = (() => { try { return localStorage.getItem(LS_CURRENT_CAT) || '__all__'; } catch { return '__all__'; } })();
+  const saveCurrentCategory = (cat) => { currentCategory = cat; localStorage.setItem(LS_CURRENT_CAT, cat); };
+
+  const loadMeta = () => { try { return JSON.parse(localStorage.getItem(LS_META)) || {}; } catch { return {}; } };
   const saveMeta = (m) => localStorage.setItem(LS_META, JSON.stringify(m));
 
-  // ---------- 抓取 ----------
-  // 1) favicon：使用 Google 的 favicon 服务（通过 <img> 加载，无 CORS 问题）
-  //    失败时回退到 /favicon.ico
-  const buildFaviconUrl = (pageUrl) => {
-    const host = safeHost(pageUrl);
-    if (!host) return '';
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`;
-  };
+  const buildFaviconUrl = (pageUrl) => { const host = safeHost(pageUrl); if (!host) return ''; return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`; };
 
-  // 2) 标题：通过 CORS 代理抓取 HTML 解析 <title>
-  //    兼容多个代理，按顺序尝试
   const TITLE_PROXIES = [
     (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
     (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
@@ -124,174 +80,179 @@
         if (!res.ok) continue;
         const ct = res.headers.get('content-type') || '';
         let html = '';
-        if (ct.includes('application/json')) {
-          const data = await res.json();
-          html = data.contents || data.body || data || '';
-        } else {
-          html = await res.text();
-        }
+        if (ct.includes('application/json')) { const data = await res.json(); html = data.contents || data.body || data || ''; }
+        else { html = await res.text(); }
         const title = extractTitle(typeof html === 'string' ? html : '');
         if (title) return title;
-      } catch (e) {
-        // 当前代理失败，尝试下一个
-      }
+      } catch (e) {}
     }
     return '';
   };
 
-  /**
-   * 抓取并写回 meta 缓存
-   * 返回 { title, icon }
-   */
   const enrichBookmark = async (bm, force = false) => {
     const meta = loadMeta();
     const cached = meta[bm.id];
     const needTitle = force || !bm.name || !cached || !cached.title || Date.now() - (cached.ts || 0) > CACHE_TTL;
-    const needIcon  = force || !bm.icon || !cached || !cached.icon  || Date.now() - (cached.ts || 0) > CACHE_TTL;
-
+    const needIcon = force || !bm.icon || !cached || !cached.icon || Date.now() - (cached.ts || 0) > CACHE_TTL;
     let title = bm.name || (cached && cached.title) || safeHost(bm.url);
-    let icon  = bm.icon  || (cached && cached.icon)  || buildFaviconUrl(bm.url);
-
-    if (needTitle) {
-      const t = await fetchTitle(bm.url);
-      if (t) title = t;
-    }
-    if (needIcon) {
-      icon = buildFaviconUrl(bm.url);
-    }
-
-    meta[bm.id] = {
-      title,
-      icon,
-      ts: Date.now(),
-    };
+    let icon = bm.icon || (cached && cached.icon) || buildFaviconUrl(bm.url);
+    if (needTitle) { const t = await fetchTitle(bm.url); if (t) title = t; }
+    if (needIcon) { icon = buildFaviconUrl(bm.url); }
+    meta[bm.id] = { title, icon, ts: Date.now() };
     saveMeta(meta);
     return { title, icon };
   };
 
-  // ---------- 渲染 ----------
+  // ---------- 大时钟逻辑 ----------
+  const tickClock = () => {
+    const display = $('#clockDisplay');
+    if (!display) return;
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    display.textContent = `${h}:${m}:${s}`;
+
+    const dateEl = $('#clockDate');
+    if (dateEl) {
+      const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${weekdays[now.getDay()]}`;
+      dateEl.textContent = dateStr;
+    }
+  };
+
   let bookmarks = loadBookmarks();
+
+  const getSortedCategories = (keys) => {
+    return keys.sort((a, b) => {
+      const ai = categoryOrder.indexOf(a); const bi = categoryOrder.indexOf(b);
+      if (ai >= 0 && bi >= 0) return ai - bi;
+      if (ai >= 0) return -1;
+      if (bi >= 0) return 1;
+      if (a === '常用') return -1;
+      if (b === '常用') return 1;
+      return a.localeCompare(b, 'zh-CN');
+    });
+  };
+
+  const renderSidebar = () => {
+    const nav = $('#categoryNav');
+    if (!nav) return;
+    const counts = {};
+    bookmarks.forEach((b) => { const cat = b.category || '未分类'; counts[cat] = (counts[cat] || 0) + 1; });
+    if (currentCategory !== '__all__' && !counts[currentCategory]) saveCurrentCategory('__all__');
+
+    const cats = getSortedCategories(Object.keys(counts));
+    let html = `<button type="button" class="cat-item ${currentCategory === '__all__' ? 'active' : ''}" data-cat="__all__"><span class="cat-name">全部</span><span class="cat-count">${bookmarks.length}</span></button>`;
+    cats.forEach((cat) => {
+      html += `<button type="button" class="cat-item ${currentCategory === cat ? 'active' : ''}" data-cat="${escapeHtml(cat)}"><span class="cat-name">${escapeHtml(cat)}</span><span class="cat-count">${counts[cat]}</span></button>`;
+    });
+    nav.innerHTML = html;
+  };
 
   const render = (filter = '') => {
     const container = $('#navContainer');
     const kw = filter.trim().toLowerCase();
 
-    const filtered = bookmarks.filter((b) => {
-      if (!kw) return true;
-      return (
-        (b.name || '').toLowerCase().includes(kw) ||
-        b.url.toLowerCase().includes(kw) ||
-        (b.category || '').toLowerCase().includes(kw)
-      );
+    const allCats = {};
+    bookmarks.forEach((b) => { const cat = b.category || '未分类'; if (!allCats[cat]) allCats[cat] = { all: [], shown: [] }; allCats[cat].all.push(b); });
+
+    const orderChanged = Object.keys(allCats).some((c) => !categoryOrder.includes(c)) || categoryOrder.some((c) => !Object.prototype.hasOwnProperty.call(allCats, c));
+    if (orderChanged) {
+      const present = categoryOrder.filter((c) => Object.prototype.hasOwnProperty.call(allCats, c));
+      const newOnes = Object.keys(allCats).filter((c) => !categoryOrder.includes(c));
+      categoryOrder = present.concat(newOnes); saveCategoryOrder();
+    }
+
+    if (currentCategory !== '__all__' && !allCats[currentCategory]) saveCurrentCategory('__all__');
+
+    let scopedCats;
+    if (currentCategory === '__all__') { scopedCats = allCats; }
+    else { scopedCats = {}; if (allCats[currentCategory]) scopedCats[currentCategory] = allCats[currentCategory]; }
+
+    Object.keys(scopedCats).forEach((cat) => {
+      scopedCats[cat].shown = scopedCats[cat].all.filter((b) => {
+        if (!kw) return true;
+        return ((b.name || '').toLowerCase().includes(kw) || b.url.toLowerCase().includes(kw) || (b.category || '').toLowerCase().includes(kw));
+      });
     });
 
+    const filtered = Object.keys(scopedCats).flatMap((cat) => scopedCats[cat].shown);
+    const scopedTotal = Object.keys(scopedCats).reduce((sum, cat) => sum + scopedCats[cat].all.length, 0);
+
+    const groupNameEl = $('#currentGroupName');
+    const groupCountEl = $('#currentGroupCount');
+    if (groupNameEl) groupNameEl.textContent = currentCategory === '__all__' ? '全部书签' : currentCategory;
+    if (groupCountEl) groupCountEl.textContent = (kw && scopedTotal > 0) ? `${filtered.length} / ${scopedTotal}` : `${scopedTotal} 项`;
+
     if (filtered.length === 0) {
-      container.innerHTML = `<div class="empty">${
-        kw ? '没有匹配的书签' : '暂无书签，点击右上角 ＋ 添加一个吧'
-      }</div>`;
-      updateTotalCount(0, filtered.length, kw);
+      container.innerHTML = `<div class="empty">${kw ? '没有匹配的书签' : '暂无书签，点击右上角 ＋ 添加一个吧'}</div>`;
+      updateTotalCount(scopedTotal, filtered.length, kw);
+      renderSidebar();
       return;
     }
 
-    // 计数：分类内显示"当前可见 / 该分类总数"（搜索时）
-    const groups = {};
-    bookmarks.forEach((b) => {
-      const cat = b.category || '未分类';
-      (groups[cat] = groups[cat] || { all: [], shown: [] }).all.push(b);
-    });
-    filtered.forEach((b) => {
-      const cat = b.category || '未分类';
-      groups[cat].shown.push(b);
-    });
-
     const meta = loadMeta();
+    const sortedCats = getSortedCategories(Object.keys(scopedCats));
 
-    // 维护 categoryOrder：新增的分类追加到末尾；已删除的分类从顺序中移除
-    const orderChanged =
-      Object.keys(groups).some((c) => !categoryOrder.includes(c)) ||
-      categoryOrder.some((c) => !Object.prototype.hasOwnProperty.call(groups, c));
-    if (orderChanged) {
-      const present = categoryOrder.filter((c) => Object.prototype.hasOwnProperty.call(groups, c));
-      const newOnes = Object.keys(groups).filter((c) => !categoryOrder.includes(c));
-      categoryOrder = present.concat(newOnes);
-      saveCategoryOrder();
-    }
-
-    const sortedCats = Object.keys(groups).sort((a, b) => {
-      const ai = categoryOrder.indexOf(a);
-      const bi = categoryOrder.indexOf(b);
-      if (ai >= 0 && bi >= 0) return ai - bi;
-      if (ai >= 0) return -1;
-      if (bi >= 0) return 1;
-      // 都不在顺序数组中（极少发生）：常用排第一，其余按拼音
-      if (a === '常用') return -1;
-      if (b === '常用') return 1;
-      return a.localeCompare(b, 'zh-CN');
-    });
-
-    container.innerHTML = sortedCats
-      .map((cat) => {
-        const items = groups[cat].shown
-          .map((bm) => {
-            const m = meta[bm.id] || {};
-            const displayName = bm.name || m.title || safeHost(bm.url);
-            const iconUrl    = bm.icon || m.icon || buildFaviconUrl(bm.url);
-            const firstChar  = (displayName || '?').trim().charAt(0).toUpperCase();
-            return `
-              <a class="card" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" data-id="${bm.id}" draggable="true" title="${escapeHtml(bm.name || safeHost(bm.url))}">
-                <div class="card-drag" aria-hidden="true" title="拖动排序">⠿</div>
-                <div class="card-icon">
-                  <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                  <div class="fallback" style="display:none">${escapeHtml(firstChar)}</div>
-                </div>
-                <div class="card-name">${escapeHtml(displayName)}</div>
-                <div class="card-url">${escapeHtml(safeHost(bm.url))}</div>
-                <div class="card-actions">
-                  <button type="button" data-action="edit" data-id="${bm.id}" title="编辑" draggable="false">✎</button>
-                  <button type="button" data-action="del"  data-id="${bm.id}" title="删除" draggable="false">🗑</button>
-                </div>
-              </a>`;
-          })
-          .join('');
-        const collapsed = isCollapsed(cat);
+    container.innerHTML = sortedCats.map((cat) => {
+      const items = scopedCats[cat].shown.map((bm) => {
+        const m = meta[bm.id] || {};
+        const displayName = bm.name || m.title || safeHost(bm.url);
+        const iconUrl = bm.icon || m.icon || buildFaviconUrl(bm.url);
+        const firstChar = (displayName || '?').trim().charAt(0).toUpperCase();
         return `
-          <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}">
-            <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开">
-              <span class="category-drag" data-category-drag role="button" tabindex="-1" aria-label="拖动调整分类顺序" title="拖动调整分类顺序">⠿</span>
-              <div class="category-title">${escapeHtml(cat)}</div>
-              <div class="category-meta">
-                <div class="category-count">${
-                  kw
-                    ? `${groups[cat].shown.length} / ${groups[cat].all.length}`
-                    : groups[cat].all.length
-                }</div>
-                <div class="category-toggle" aria-hidden="true">▸</div>
-              </div>
+          <a class="card" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" data-id="${bm.id}" draggable="true" title="${escapeHtml(bm.name || safeHost(bm.url))}">
+            <div class="card-drag" aria-hidden="true" title="拖动排序">⠿</div>
+            <div class="card-icon">
+              <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+              <div class="fallback" style="display:none">${escapeHtml(firstChar)}</div>
             </div>
-            <div class="cards">${items}</div>
-          </section>`;
-      })
-      .join('');
+            <div class="card-name">${escapeHtml(displayName)}</div>
+            <div class="card-url">${escapeHtml(safeHost(bm.url))}</div>
+            <div class="card-actions">
+              <button type="button" data-action="edit" data-id="${bm.id}" title="编辑" draggable="false">✎</button>
+              <button type="button" data-action="del" data-id="${bm.id}" title="删除" draggable="false" class="del">🗑</button>
+            </div>
+          </a>`;
+      }).join('');
 
-    updateTotalCount(bookmarks.length, filtered.length, kw);
+      const collapsed = isCollapsed(cat);
+      return `
+        <section class="category${collapsed ? ' collapsed' : ''}" data-category="${escapeHtml(cat)}">
+          <div class="category-header" data-toggle-category role="button" tabindex="0" aria-expanded="${!collapsed}" title="点击收起/展开">
+            <span class="category-drag" data-category-drag role="button" tabindex="-1" aria-label="拖动调整分类顺序" title="拖动调整分类顺序">⠿</span>
+            <div class="category-title">${escapeHtml(cat)}</div>
+            <div class="category-meta">
+              <div class="category-count">${kw ? `${scopedCats[cat].shown.length} / ${scopedCats[cat].all.length}` : scopedCats[cat].all.length}</div>
+              <div class="category-toggle" aria-hidden="true">▸</div>
+            </div>
+          </div>
+          <div class="cards">${items}</div>
+        </section>`;
+    }).join('');
+
+    updateTotalCount(scopedTotal, filtered.length, kw);
+    renderSidebar();
   };
 
-  // 更新顶部总数：搜索时显示 "5 / 23" 形式
   const updateTotalCount = (total, shown, kw) => {
     const el = $('#totalCount');
     if (!el) return;
-    if (kw && total > 0) {
-      el.textContent = `${shown} / ${total}`;
-      el.title = `显示 ${shown} 项，共 ${total} 项`;
-    } else {
-      el.textContent = String(total);
-      el.title = `共 ${total} 项书签`;
-    }
+    if (kw && total > 0) { el.textContent = `${shown} / ${total}`; el.title = `显示 ${shown} 项，共 ${total} 项`; }
+    else { el.textContent = String(total); el.title = `共 ${total} 项书签`; }
   };
 
-  // ---------- 卡片事件（编辑/删除） ----------
+  const onCategoryNavClick = (e) => {
+    const btn = e.target.closest('.cat-item');
+    if (!btn) return;
+    const cat = btn.dataset.cat;
+    if (!cat || cat === currentCategory) return;
+    saveCurrentCategory(cat);
+    render($('#searchInput').value);
+  };
+
   const onCardAction = (e) => {
-    // 折叠/展开分类（点击 header 区域，非按钮）
     const header = e.target.closest('[data-toggle-category]');
     if (header) {
       const section = header.closest('.category');
@@ -305,16 +266,13 @@
     }
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
-    // 阻止冒泡到外层 <a> 触发导航
-    e.preventDefault();
-    e.stopPropagation();
-    const id = btn.dataset.id;
-    const action = btn.dataset.action;
+    e.preventDefault(); e.stopPropagation();
+    const id = btn.dataset.id; const action = btn.dataset.action;
     const bm = bookmarks.find((b) => b.id === id);
     if (!bm) return;
     if (action === 'edit') openModal(bm);
     if (action === 'del') {
-      if (confirm(`确定要删除 “${bm.name || safeHost(bm.url)}” 吗？`)) {
+      if (confirm(`确定要删除 "${bm.name || safeHost(bm.url)}" 吗？`)) {
         bookmarks = bookmarks.filter((b) => b.id !== id);
         saveBookmarks(bookmarks);
         render($('#searchInput').value);
@@ -324,146 +282,81 @@
     }
   };
 
-  // ---------- 拖拽排序 ----------
-  // 拖拽状态：区分卡片 / 分类两种 kind
   const drag = { kind: null, id: null, cat: null };
-
-  // 清除所有拖拽相关的视觉态
-  const clearDragStates = () => {
-    document.querySelectorAll('.dragging, .drag-over, .drag-over-before, .drag-over-after')
-      .forEach((el) => el.classList.remove('dragging', 'drag-over', 'drag-over-before', 'drag-over-after'));
-  };
-
+  const clearDragStates = () => { document.querySelectorAll('.dragging, .drag-over, .drag-over-before, .drag-over-after').forEach((el) => el.classList.remove('dragging', 'drag-over', 'drag-over-before', 'drag-over-after')); };
   const onDragStart = (e) => {
-    // 卡片：被拖动
     const card = e.target.closest('.card[draggable="true"]');
     if (card) {
-      drag.kind = 'card';
-      drag.id   = card.dataset.id;
-      drag.cat  = card.closest('.category').dataset.category;
+      drag.kind = 'card'; drag.id = card.dataset.id; drag.cat = card.closest('.category').dataset.category;
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', 'card:' + drag.id); } catch {}
-      // 延迟加 class，避免拖动预览半透明
       requestAnimationFrame(() => card.classList.add('dragging'));
       return;
     }
-    // 分类：只允许通过专用手柄（⠿）拖动，避免误带文字/卡片
     const handle = e.target.closest('[data-category-drag]');
     if (handle) {
       const section = handle.closest('.category');
       if (!section) return;
-      drag.kind = 'category';
-      drag.cat  = section.dataset.category;
+      drag.kind = 'category'; drag.cat = section.dataset.category;
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', 'cat:' + drag.cat); } catch {}
-      // 自定义拖动预览：截取整组 section（避开卡片，避免视觉上"带其他分组"）
       const ghost = section.cloneNode(true);
-      ghost.style.position = 'absolute';
-      ghost.style.top = '-9999px';
-      ghost.style.left = '-9999px';
-      ghost.style.width = section.offsetWidth + 'px';
-      ghost.style.opacity = '0.85';
-      ghost.style.pointerEvents = 'none';
-      // 隐藏卡片内容，只留 header 作为拖动预览
+      ghost.style.position = 'absolute'; ghost.style.top = '-9999px'; ghost.style.left = '-9999px';
+      ghost.style.width = section.offsetWidth + 'px'; ghost.style.opacity = '0.85'; ghost.style.pointerEvents = 'none';
       const cards = ghost.querySelector('.cards');
       if (cards) cards.style.display = 'none';
       document.body.appendChild(ghost);
-      try {
-        e.dataTransfer.setDragImage(ghost, 12, 14);
-      } catch {}
-      // 必须在 setDragImage 后再清掉（同步生效即可）
+      try { e.dataTransfer.setDragImage(ghost, 12, 14); } catch {}
       setTimeout(() => ghost.remove(), 0);
       requestAnimationFrame(() => section.classList.add('dragging'));
     }
   };
-
-  const onDragEnd = () => {
-    drag.kind = null;
-    drag.id = null;
-    drag.cat = null;
-    clearDragStates();
-  };
-
-  // 工具：从 Y 坐标判断相对 target 的"上半 / 下半"
-  const isBeforeTarget = (target, clientY) => {
-    const r = target.getBoundingClientRect();
-    return clientY - r.top < r.height / 2;
-  };
-
+  const onDragEnd = () => { drag.kind = null; drag.id = null; drag.cat = null; clearDragStates(); };
+  const isBeforeTarget = (target, clientY) => { const r = target.getBoundingClientRect(); return clientY - r.top < r.height / 2; };
   const onDragOver = (e) => {
     if (!drag.kind) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    // 实时清理其他高亮，避免重叠
-    document.querySelectorAll('.drag-over, .drag-over-before, .drag-over-after')
-      .forEach((el) => el.classList.remove('drag-over', 'drag-over-before', 'drag-over-after'));
-
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.drag-over, .drag-over-before', 'drag-over-after').forEach((el) => el.classList.remove('drag-over', 'drag-over-before', 'drag-over-after'));
     if (drag.kind === 'card') {
-      // 卡片拖拽中：目标可以是另一张卡片（排序）或分类 header（移动到该分类）
       const targetCard = e.target.closest('.card[draggable="true"]');
       const targetSection = e.target.closest('.category');
       if (!targetSection) return;
-      // 排除自身
       if (targetCard && targetCard.dataset.id === drag.id) return;
-      if (targetCard) {
-        const before = isBeforeTarget(targetCard, e.clientY);
-        targetCard.classList.add(before ? 'drag-over-before' : 'drag-over-after');
-      } else if (e.target.closest('[data-toggle-category]') || e.target.closest('.cards')) {
-        // 拖到 header 区域或 cards 区域空白处 → 高亮整个 section
-        targetSection.classList.add('drag-over');
-      }
+      if (targetCard) { const before = isBeforeTarget(targetCard, e.clientY); targetCard.classList.add(before ? 'drag-over-before' : 'drag-over-after'); }
+      else if (e.target.closest('[data-toggle-category]') || e.target.closest('.cards')) { targetSection.classList.add('drag-over'); }
     } else if (drag.kind === 'category') {
       const targetSection = e.target.closest('.category');
       if (!targetSection) return;
       if (targetSection.dataset.category === drag.cat) return;
-      // 分类拖拽中：目标必须命中 header（避免拖到卡片时误判）
-      if (e.target.closest('[data-toggle-category]')) {
-        const before = isBeforeTarget(targetSection, e.clientY);
-        targetSection.classList.add(before ? 'drag-over-before' : 'drag-over-after');
-      }
+      if (e.target.closest('[data-toggle-category]')) { const before = isBeforeTarget(targetSection, e.clientY); targetSection.classList.add(before ? 'drag-over-before' : 'drag-over-after'); }
     }
   };
-
-  // 防止 dragleave 误清掉状态：用 relatedTarget 校验
-  const onDragLeave = (e) => {
-    // 简化：onDragOver 会立即覆盖，这里不需要做事
-  };
-
+  const onDragLeave = () => {};
   const onDrop = (e) => {
     if (!drag.kind) return;
     e.preventDefault();
-
     if (drag.kind === 'card') {
       const targetCard = e.target.closest('.card[draggable="true"]');
       const targetSection = e.target.closest('.category');
       if (!targetSection) return;
       const targetCat = targetSection.dataset.category;
-
       if (targetCard && targetCard.dataset.id !== drag.id) {
         const before = targetCard.classList.contains('drag-over-before');
         reorderCard(drag.id, drag.cat, targetCard.dataset.id, targetCat, before);
       } else if (!targetCard) {
-        // 拖到 header 或 cards 空白处 → 移动到该分类末尾
         moveCardToCategory(drag.id, drag.cat, targetCat);
       }
     } else if (drag.kind === 'category') {
       const targetSection = e.target.closest('.category');
-      if (!targetSection || targetSection.dataset.category === drag.cat) {
-        onDragEnd();
-        return;
-      }
+      if (!targetSection || targetSection.dataset.category === drag.cat) { onDragEnd(); return; }
       const before = targetSection.classList.contains('drag-over-before');
       reorderCategory(drag.cat, targetSection.dataset.category, before);
     }
-
     saveBookmarks(bookmarks);
     render($('#searchInput').value);
     markPending();
     onDragEnd();
   };
-
-  // 卡片重排 / 跨分类移动：bookmarks 数组顺序即显示顺序
   const reorderCard = (draggedId, sourceCat, targetId, targetCat, before) => {
     const dragIdx = bookmarks.findIndex((b) => b.id === draggedId);
     if (dragIdx < 0) return;
@@ -471,75 +364,58 @@
     if (sourceCat !== targetCat) moved.category = targetCat;
     const tgtIdx = bookmarks.findIndex((b) => b.id === targetId);
     if (tgtIdx < 0) {
-      // 找不到 target（极端情况）→ 放到目标分类末尾
       let last = -1;
-      for (let i = 0; i < bookmarks.length; i++) {
-        if ((bookmarks[i].category || '未分类') === targetCat) last = i;
-      }
+      for (let i = 0; i < bookmarks.length; i++) { if ((bookmarks[i].category || '未分类') === targetCat) last = i; }
       bookmarks.splice(last + 1, 0, moved);
     } else {
       bookmarks.splice(before ? tgtIdx : tgtIdx + 1, 0, moved);
     }
   };
-
   const moveCardToCategory = (draggedId, sourceCat, targetCat) => {
     if (sourceCat === targetCat) return;
     const dragIdx = bookmarks.findIndex((b) => b.id === draggedId);
     if (dragIdx < 0) return;
     const [moved] = bookmarks.splice(dragIdx, 1);
     moved.category = targetCat;
-    // 追加到目标分类末尾
     let last = -1;
-    for (let i = 0; i < bookmarks.length; i++) {
-      if ((bookmarks[i].category || '未分类') === targetCat) last = i;
-    }
+    for (let i = 0; i < bookmarks.length; i++) { if ((bookmarks[i].category || '未分类') === targetCat) last = i; }
     bookmarks.splice(last + 1, 0, moved);
   };
-
   const reorderCategory = (sourceCat, targetCat, before) => {
-    // 把 sourceCat 从 categoryOrder 中移除，再插到 targetCat 前后
     const srcIdx = categoryOrder.indexOf(sourceCat);
     if (srcIdx >= 0) categoryOrder.splice(srcIdx, 1);
     else categoryOrder.push(sourceCat);
     const tgtIdx = categoryOrder.indexOf(targetCat);
-    if (tgtIdx < 0) {
-      categoryOrder.push(sourceCat);
-    } else {
-      categoryOrder.splice(before ? tgtIdx : tgtIdx + 1, 0, sourceCat);
-    }
+    if (tgtIdx < 0) { categoryOrder.push(sourceCat); }
+    else { categoryOrder.splice(before ? tgtIdx : tgtIdx + 1, 0, sourceCat); }
     saveCategoryOrder();
   };
 
-  // ---------- 弹窗 ----------
   const openModal = (bm) => {
     $('#modalTitle').textContent = bm ? '编辑书签' : '添加书签';
-    $('#bmId').value         = bm ? bm.id : '';
-    $('#bmName').value       = bm ? bm.name || '' : '';
-    $('#bmUrl').value        = bm ? bm.url || '' : '';
-    $('#bmCategory').value   = bm ? bm.category || '' : '';
-    $('#bmIcon').value       = bm ? bm.icon || '' : '';
+    $('#bmId').value = bm ? bm.id : '';
+    $('#bmName').value = bm ? bm.name || '' : '';
+    $('#bmUrl').value = bm ? bm.url || '' : '';
+    $('#bmCategory').value = bm ? (bm.category || '') : (currentCategory !== '__all__' ? currentCategory : '');
+    $('#bmIcon').value = bm ? bm.icon || '' : '';
     refreshCategoryDatalist();
     $('#modal').classList.remove('hidden');
     setTimeout(() => $('#bmUrl').focus(), 50);
   };
   const closeModal = () => $('#modal').classList.add('hidden');
-
   const refreshCategoryDatalist = () => {
     const cats = Array.from(new Set(bookmarks.map((b) => b.category).filter(Boolean)));
     $('#categoryList').innerHTML = cats.map((c) => `<option value="${escapeHtml(c)}">`).join('');
   };
-
   const onFormSubmit = async (e) => {
     e.preventDefault();
-    const id   = $('#bmId').value;
+    const id = $('#bmId').value;
     const name = $('#bmName').value.trim();
-    const url  = $('#bmUrl').value.trim();
-    const cat  = $('#bmCategory').value.trim() || '未分类';
+    const url = $('#bmUrl').value.trim();
+    const cat = $('#bmCategory').value.trim() || '未分类';
     const icon = $('#bmIcon').value.trim();
-
     if (!url) { showToast('请输入网址'); return; }
     try { new URL(url); } catch { showToast('网址格式不正确'); return; }
-
     if (id) {
       const bm = bookmarks.find((b) => b.id === id);
       if (bm) { bm.name = name; bm.url = url; bm.category = cat; bm.icon = icon; }
@@ -551,11 +427,9 @@
     render($('#searchInput').value);
     showToast('已保存');
     markPending();
-    // 异步抓取新书签的元数据
     enrichAll(false);
   };
 
-  // ---------- 导入 / 导出 ----------
   const exportData = () => {
     const data = JSON.stringify(bookmarks, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -566,11 +440,9 @@
     URL.revokeObjectURL(a.href);
     showToast('已导出 JSON');
   };
-
   const importData = () => {
     const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'application/json';
+    input.type = 'file'; input.accept = 'application/json';
     input.onchange = async () => {
       const file = input.files[0];
       if (!file) return;
@@ -578,7 +450,6 @@
         const text = await file.text();
         const arr = JSON.parse(text);
         if (!Array.isArray(arr)) throw new Error('格式错误');
-        // 合并：按 url 去重
         const map = new Map(bookmarks.map((b) => [b.url, b]));
         arr.forEach((b) => {
           if (!b || !b.url) return;
@@ -592,15 +463,11 @@
         enrichAll(false);
         showToast(`已导入，共 ${bookmarks.length} 项`);
         markPending();
-      } catch (err) {
-        showToast('导入失败：' + err.message);
-      }
+      } catch (err) { showToast('导入失败：' + err.message); }
     };
     input.click();
   };
 
-  // ---------- 批量抓取 ----------
-  // 并发抓取，控制并发数避免代理限流
   const runWithConcurrency = async (items, limit, fn) => {
     const results = new Array(items.length);
     let idx = 0;
@@ -608,14 +475,12 @@
       while (true) {
         const i = idx++;
         if (i >= items.length) return;
-        try { results[i] = await fn(items[i], i); }
-        catch (e) { results[i] = null; }
+        try { results[i] = await fn(items[i], i); } catch (e) { results[i] = null; }
       }
     });
     await Promise.all(workers);
     return results;
   };
-
   const enrichAll = async (force = false) => {
     showToast('开始抓取元数据…');
     await runWithConcurrency(bookmarks, 4, (bm) => enrichBookmark(bm, force));
@@ -623,76 +488,29 @@
     showToast('抓取完成');
   };
 
-  // =========================================================
-  //  云同步（GitHub Gist）
-  // =========================================================
+  // 云同步
   const GIST_API = 'https://api.github.com';
   const GIST_FILE = 'nav-bookmarks.json';
-
-  // 你的个人默认 Gist ID —— 单人部署时填入，所有设备默认同步到这一个 Gist
-  // 留空则：用户首次启用同步时自动创建一个新 Gist（每人/每设备一个）
-  // 多用户/隐私场景：留空，让每位用户自带 Gist
-  const DEFAULT_GIST_ID = '***********'; // ← 替换成你自己的 Gist ID，例如 'abc123def456...'
-
-  const loadSyncConfig = () => {
-    try { return JSON.parse(localStorage.getItem(LS_SYNC)) || {}; }
-    catch { return {}; }
-  };
+  const DEFAULT_GIST_ID = '***********';
+  const loadSyncConfig = () => { try { return JSON.parse(localStorage.getItem(LS_SYNC)) || {}; } catch { return {}; } };
   const saveSyncConfig = (c) => localStorage.setItem(LS_SYNC, JSON.stringify(c));
-
-  // 有效 Gist ID：用户保存的 > 内置默认
-  const getGistId = () => {
-    const cfg = loadSyncConfig();
-    return (cfg.gistId && cfg.gistId.trim()) || (DEFAULT_GIST_ID.trim() || '');
-  };
-  const isUsingDefaultGist = () => {
-    const cfg = loadSyncConfig();
-    return !(cfg.gistId && cfg.gistId.trim()) && !!DEFAULT_GIST_ID.trim();
-  };
-
-  const setSyncIndicator = (state, text) => {
-    const el = $('#syncIndicator');
-    if (!el) return;
-    el.className = 'sync-indicator' + (state ? ' ' + state : '');
-    el.textContent = text || '';
-    el.title = text || '';
-  };
-
-  const setSyncStatus = (text, cls) => {
-    const el = $('#syncStatus');
-    if (!el) return;
-    el.className = 'sync-status' + (cls ? ' ' + cls : '');
-    el.textContent = text;
-  };
-
+  const getGistId = () => { const cfg = loadSyncConfig(); return (cfg.gistId && cfg.gistId.trim()) || (DEFAULT_GIST_ID.trim() || ''); };
+  const isUsingDefaultGist = () => { const cfg = loadSyncConfig(); return !(cfg.gistId && cfg.gistId.trim()) && !!DEFAULT_GIST_ID.trim(); };
+  const setSyncIndicator = (state, text) => { const el = $('#syncIndicator'); if (!el) return; el.className = 'sync-indicator' + (state ? ' ' + state : ''); el.textContent = text || ''; el.title = text || ''; };
+  const setSyncStatus = (text, cls) => { const el = $('#syncStatus'); if (!el) return; el.className = 'sync-status' + (cls ? ' ' + cls : ''); el.textContent = text; };
   const gistRequest = async (path, method = 'GET', body) => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先填写 GitHub Token');
     const res = await fetch(GIST_API + path, {
-      method,
-      headers: {
-        'Authorization': 'token ' + cfg.token,
-        'Accept': 'application/vnd.github+json',
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
+      method, headers: { 'Authorization': 'token ' + cfg.token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || ('HTTP ' + res.status));
-    }
+    if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || ('HTTP ' + res.status)); }
     return res.json();
   };
-
   const createGist = async (bookmarks) => {
-    const data = await gistRequest('/gists', 'POST', {
-      description: 'Personal Nav - Bookmarks',
-      public: false,
-      files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } },
-    });
+    const data = await gistRequest('/gists', 'POST', { description: 'Personal Nav - Bookmarks', public: false, files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } } });
     return data.id;
   };
-
   const pullFromGist = async () => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
@@ -702,11 +520,8 @@
     const file = data.files[GIST_FILE];
     if (!file) return null;
     let content = file.content || '';
-    // 内容过长会被截断，需用 raw_url 二次拉取
     if (!content && file.truncated && file.raw_url) {
-      const res = await fetch(file.raw_url, {
-        headers: { 'Authorization': 'token ' + cfg.token },
-      });
+      const res = await fetch(file.raw_url, { headers: { 'Authorization': 'token ' + cfg.token } });
       if (!res.ok) throw new Error('拉取 raw 内容失败 HTTP ' + res.status);
       content = await res.text();
     }
@@ -715,107 +530,57 @@
     if (!Array.isArray(arr)) throw new Error('Gist 内容不是书签数组');
     return arr;
   };
-
   const pushToGist = async (bookmarks) => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
     const effectiveGistId = getGistId();
     if (effectiveGistId) {
-      // 有 Gist ID（用户保存的或代码内置默认）→ 直接 PATCH
-      await gistRequest('/gists/' + effectiveGistId, 'PATCH', {
-        files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } },
-      });
+      await gistRequest('/gists/' + effectiveGistId, 'PATCH', { files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } } });
     } else {
-      // 没有任何 Gist ID → 创建新的并写回用户配置
       const newId = await createGist(bookmarks);
-      cfg.gistId = newId;
-      saveSyncConfig(cfg);
-      const idEl = $('#ghGistId');
-      if (idEl) idEl.value = newId;
+      cfg.gistId = newId; saveSyncConfig(cfg);
+      const idEl = $('#ghGistId'); if (idEl) idEl.value = newId;
     }
-    cfg.lastSync = Date.now();
-    saveSyncConfig(cfg);
+    cfg.lastSync = Date.now(); saveSyncConfig(cfg);
   };
 
-  let syncing = false;
-  let pendingPush = false;   // 本地有未推送的变更，期间禁止拉取覆盖
-
-  // 标记本地有未推送的修改（仅打标，不自动推送，避免触发 Gist API 频率限制）
-  const markPending = () => {
-    if (!loadSyncConfig().enabled) return;
-    pendingPush = true;
-    setSyncIndicator('unsaved', '●');
-    setSyncStatus('本地有未推送的修改', 'busy');
-  };
-
+  let syncing = false; let pendingPush = false;
+  const markPending = () => { if (!loadSyncConfig().enabled) return; pendingPush = true; setSyncIndicator('unsaved', '●'); setSyncStatus('本地有未推送的修改', 'busy'); };
   const doPull = async (silent = false, force = false) => {
     if (syncing) return;
-    if (pendingPush && !force) {
-      // 本地有未推送的改动，不允许拉取覆盖（防删除"闪回"）
-      if (!silent) {
-        setSyncIndicator('unsaved', '●');
-        setSyncStatus('本地有未推送的修改，请先点击「推送到 Gist」', 'busy');
-      }
-      return;
-    }
-    syncing = true;
-    setSyncIndicator('syncing', '⏳');
-    setSyncStatus('正在拉取…', 'busy');
+    if (pendingPush && !force) { if (!silent) { setSyncIndicator('unsaved', '●'); setSyncStatus('本地有未推送的修改，请先点击「推送到 Gist」', 'busy'); } return; }
+    syncing = true; setSyncIndicator('syncing', '⏳'); setSyncStatus('正在拉取…', 'busy');
     try {
       const remote = await pullFromGist();
-      // 拉取过程中用户可能又改了本地，再检查一次
-      if (pendingPush && !force) {
-        if (!silent) {
-          setSyncIndicator('unsaved', '●');
-          setSyncStatus('本地有新修改，已取消本次拉取', 'busy');
-        }
-        return;
-      }
-      if (remote === null) {
-        if (!silent) setSyncStatus('Gist 为空', '');
-      } else if (remote.length === 0) {
-        if (!silent) setSyncStatus('Gist 中无书签', '');
-      } else {
-        bookmarks = remote;
-        saveBookmarks(bookmarks);
-        render($('#searchInput').value);
-        pendingPush = false; // 拉取后以云端为准
+      if (pendingPush && !force) { if (!silent) { setSyncIndicator('unsaved', '●'); setSyncStatus('本地有新修改，已取消本次拉取', 'busy'); } return; }
+      if (remote === null) { if (!silent) setSyncStatus('Gist 为空', ''); }
+      else if (remote.length === 0) { if (!silent) setSyncStatus('Gist 中无书签', ''); }
+      else {
+        bookmarks = remote; saveBookmarks(bookmarks);
+        render($('#searchInput').value); pendingPush = false;
         if (!silent) showToast('已从 Gist 拉取 ' + bookmarks.length + ' 项');
       }
       setSyncIndicator('synced', '✓');
       setSyncStatus('已同步 · ' + new Date(loadSyncConfig().lastSync || Date.now()).toLocaleString('zh-CN'), 'ok');
       setTimeout(() => setSyncIndicator('', ''), 1500);
     } catch (err) {
-      setSyncIndicator('error', '⚠');
-      setSyncStatus('拉取失败：' + err.message, 'error');
+      setSyncIndicator('error', '⚠'); setSyncStatus('拉取失败：' + err.message, 'error');
       if (!silent) showToast('拉取失败：' + err.message);
-    } finally {
-      syncing = false;
-    }
+    } finally { syncing = false; }
   };
-
   const doPush = async () => {
     if (syncing) return;
-    syncing = true;
-    setSyncIndicator('syncing', '⏳');
-    setSyncStatus('正在推送…', 'busy');
+    syncing = true; setSyncIndicator('syncing', '⏳'); setSyncStatus('正在推送…', 'busy');
     try {
       await pushToGist(bookmarks);
-      setSyncIndicator('synced', '✓');
-      setSyncStatus('已同步 · ' + new Date().toLocaleString('zh-CN'), 'ok');
+      setSyncIndicator('synced', '✓'); setSyncStatus('已同步 · ' + new Date().toLocaleString('zh-CN'), 'ok');
       showToast('已推送到 Gist');
-      setTimeout(() => setSyncIndicator('', ''), 1500);
-      pendingPush = false; // 推送成功，本地与云端一致
+      setTimeout(() => setSyncIndicator('', ''), 1500); pendingPush = false;
     } catch (err) {
-      setSyncIndicator('error', '⚠');
-      setSyncStatus('推送失败：' + err.message, 'error');
+      setSyncIndicator('error', '⚠'); setSyncStatus('推送失败：' + err.message, 'error');
       showToast('推送失败：' + err.message);
-      // 推送失败保留 pendingPush=true
-    } finally {
-      syncing = false;
-    }
+    } finally { syncing = false; }
   };
-
   const openSettings = () => {
     const cfg = loadSyncConfig();
     const effectiveId = getGistId();
@@ -823,212 +588,133 @@
     const usingDefault = isUsingDefaultGist();
     $('#ghToken').value = cfg.token || '';
     $('#ghGistId').value = cfg.gistId || '';
-    $('#ghGistId').placeholder = hasDefault
-      ? `默认：${DEFAULT_GIST_ID.slice(0, 8)}…（留空使用）`
-      : '留空将自动创建私有 Gist';
+    $('#ghGistId').placeholder = hasDefault ? `默认：${DEFAULT_GIST_ID.slice(0, 8)}…（留空使用）` : '留空将自动创建私有 Gist';
     $('#enableSync').checked = !!cfg.enabled;
-    // 同步状态区显示当前生效的 Gist
     let infoLine = '';
-    if (effectiveId) {
-      infoLine = usingDefault
-        ? `当前使用 内置默认 Gist (${effectiveId.slice(0, 8)}…)`
-        : `当前 Gist: ${effectiveId}`;
-    }
-    if (cfg.lastSync) {
-      setSyncStatus(`上次同步：${new Date(cfg.lastSync).toLocaleString('zh-CN')}\n${infoLine}`, 'ok');
-    } else if (cfg.token) {
-      setSyncStatus(`已配置 Token${infoLine ? '\n' + infoLine : ''}`, '');
-    } else {
-      setSyncStatus('未配置', '');
-    }
+    if (effectiveId) { infoLine = usingDefault ? `当前使用 内置默认 Gist (${effectiveId.slice(0, 8)}…)` : `当前 Gist: ${effectiveId}`; }
+    if (cfg.lastSync) { setSyncStatus(`上次同步：${new Date(cfg.lastSync).toLocaleString('zh-CN')}\n${infoLine}`, 'ok'); }
+    else if (cfg.token) { setSyncStatus(`已配置 Token${infoLine ? '\n' + infoLine : ''}`, ''); }
+    else { setSyncStatus('未配置', ''); }
     $('#settingsModal').classList.remove('hidden');
   };
   const closeSettings = () => $('#settingsModal').classList.add('hidden');
-
   const saveSettings = (e) => {
     if (e) e.preventDefault();
     const cfg = loadSyncConfig();
     cfg.token = $('#ghToken').value.trim();
-    // 用户填的优先；填的空字符串视为"使用默认"
-    const userGistId = $('#ghGistId').value.trim();
-    cfg.gistId = userGistId;
+    cfg.gistId = $('#ghGistId').value.trim();
     cfg.enabled = $('#enableSync').checked;
     saveSyncConfig(cfg);
     showToast('设置已保存');
-    if (cfg.enabled && cfg.token) {
-      if (!getGistId()) doPush();  // 既无默认也无用户 ID → 推一次创建
-      else doPull();
-    } else {
-      setSyncIndicator('', '');
-    }
+    if (cfg.enabled && cfg.token) { if (!getGistId()) doPush(); else doPull(); }
+    else { setSyncIndicator('', ''); }
   };
 
-  // ---------- 事件绑定 ----------
+  // 事件绑定
   const bindEvents = () => {
-    // 引擎切换
     const engineSel = $('#webEngine');
     const savedEngine = localStorage.getItem(LS_ENGINE);
     if (savedEngine && ENGINES[savedEngine]) engineSel.value = savedEngine;
-    engineSel.addEventListener('change', () => {
-      localStorage.setItem(LS_ENGINE, engineSel.value);
-    });
+    engineSel.addEventListener('change', () => { localStorage.setItem(LS_ENGINE, engineSel.value); });
 
-    // 网页搜索
+    // 点击时钟进入专注模式
+    const clockToggle = $('#clockToggle');
+    if (clockToggle) {
+      clockToggle.addEventListener('click', () => {
+        document.body.classList.toggle('focus-mode');
+      });
+    }
+
     $('#webSearch').addEventListener('submit', (e) => {
       e.preventDefault();
-      const q = $('#webQuery').value.trim();
-      if (!q) { $('#webQuery').focus(); return; }
+      const q = $('#searchInput').value.trim();
+      if (!q) { $('#searchInput').focus(); return; }
       const engine = ENGINES[engineSel.value] ? engineSel.value : 'bing';
       window.open(ENGINES[engine].url(q), '_blank', 'noopener,noreferrer');
     });
 
-    $('#searchInput').addEventListener('input', (e) => {
-      const has = !!e.target.value;
-      $('#clearSearch').classList.toggle('hidden', !has);
-      render(e.target.value);
-    });
-
-    $('#clearSearch').addEventListener('click', () => {
-      $('#searchInput').value = '';
-      $('#clearSearch').classList.add('hidden');
-      render('');
-      $('#searchInput').focus();
-    });
+    $('#searchInput').addEventListener('input', (e) => { const has = !!e.target.value; $('#clearSearch').classList.toggle('hidden', !has); render(e.target.value); });
+    $('#clearSearch').addEventListener('click', () => { $('#searchInput').value = ''; $('#clearSearch').classList.add('hidden'); render(''); $('#searchInput').focus(); });
 
     $('#addBtn').addEventListener('click', () => openModal(null));
     $('#cancelBtn').addEventListener('click', closeModal);
-    $('#modal').addEventListener('click', (e) => {
-      if (e.target.id === 'modal') closeModal();
-    });
+    $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
     $('#bookmarkForm').addEventListener('submit', onFormSubmit);
-
     $('#importBtn').addEventListener('click', importData);
     $('#exportBtn').addEventListener('click', exportData);
     $('#refreshBtn').addEventListener('click', () => enrichAll(true));
 
-    // 同步设置
     $('#syncBtn').addEventListener('click', openSettings);
     $('#cancelSettings').addEventListener('click', closeSettings);
-    $('#settingsModal').addEventListener('click', (e) => {
-      if (e.target.id === 'settingsModal') closeSettings();
-    });
+    $('#settingsModal').addEventListener('click', (e) => { if (e.target.id === 'settingsModal') closeSettings(); });
     $('#settingsForm').addEventListener('submit', saveSettings);
-    $('#pullNow').addEventListener('click', () => {
-      // 手动拉取：即便有未推送的修改也允许（用户明确操作）
-      if (pendingPush) {
-        if (!confirm('本地有未推送的修改，拉取会覆盖它们。是否继续？')) return;
-      }
-      doPull(false, true);
-    });
+    $('#pullNow').addEventListener('click', () => { if (pendingPush) { if (!confirm('本地有未推送的修改，拉取会覆盖它们。是否继续？')) return; } doPull(false, true); });
     $('#pushNow').addEventListener('click', () => doPush());
 
-    // 委托：卡片上的编辑/删除
+    $('#categoryNav').addEventListener('click', onCategoryNavClick);
     $('#navContainer').addEventListener('click', onCardAction);
-    // 拖拽：start/end/over/drop（HTML5 Drag & Drop API）
+
     const navEl = $('#navContainer');
     navEl.addEventListener('dragstart', onDragStart);
-    navEl.addEventListener('dragend',   onDragEnd);
-    navEl.addEventListener('dragover',  onDragOver);
+    navEl.addEventListener('dragend', onDragEnd);
+    navEl.addEventListener('dragover', onDragOver);
     navEl.addEventListener('dragleave', onDragLeave);
-    navEl.addEventListener('drop',      onDrop);
-    // 分类 header 键盘操作（回车/空格 折叠）
+    navEl.addEventListener('drop', onDrop);
+
     $('#navContainer').addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const header = e.target.closest('[data-toggle-category]');
       if (!header) return;
-      e.preventDefault();
-      header.click();
+      e.preventDefault(); header.click();
     });
 
-    // ESC 关闭弹窗
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        closeModal();
-        closeSettings();
+        closeModal(); closeSettings();
+        if (document.body.classList.contains('focus-mode')) document.body.classList.remove('focus-mode');
       }
-      // Ctrl/⌘ + K 聚焦书签搜索
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        $('#searchInput').focus();
-        $('#searchInput').select();
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); }
     });
 
-    // 切回标签页时拉取一次（多设备同步关键）
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && loadSyncConfig().enabled) doPull(true);
-    });
-    window.addEventListener('focus', () => {
-      if (loadSyncConfig().enabled) doPull(true);
-    });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && loadSyncConfig().enabled) doPull(true); });
+    window.addEventListener('focus', () => { if (loadSyncConfig().enabled) doPull(true); });
 
     $('#year').textContent = new Date().getFullYear();
   };
 
-  // ---------- Service Worker 注册 ----------
+  // Service Worker 注册
   const registerSW = () => {
     if (!('serviceWorker' in navigator)) return;
-    // 仅在 https / localhost / 127.0.0.1 注册（file:// 不支持）
     if (!/^https?:$/.test(location.protocol) && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
-
     navigator.serviceWorker.register('sw.js').then((reg) => {
-      // 检查更新
       reg.update().catch(() => {});
-
-      // 有新版本等待激活时，提示用户
       reg.addEventListener('updatefound', () => {
         const newSw = reg.installing;
         if (!newSw) return;
-        newSw.addEventListener('statechange', () => {
-          if (newSw.state === 'installed' && navigator.serviceWorker.controller) {
-            // 新 SW 已就绪，但旧 SW 还在控制页面
-            showUpdateToast();
-          }
-        });
+        newSw.addEventListener('statechange', () => { if (newSw.state === 'installed' && navigator.serviceWorker.controller) showUpdateToast(); });
       });
-    }).catch((err) => {
-      console.warn('[SW] 注册失败:', err);
-    });
-
-    // 收到 skipWaiting 后页面会自动 reload 一次（拿到新 SW）
+    }).catch((err) => { console.warn('[SW] 注册失败:', err); });
     let reloading = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading) return;
-      reloading = true;
-      location.reload();
-    });
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading) return; reloading = true; location.reload(); });
   };
-
   const showUpdateToast = () => {
     const t = document.createElement('div');
     t.className = 'update-toast';
-    t.innerHTML = `
-      <span>新版本已就绪</span>
-      <button type="button" class="btn primary" style="padding:4px 12px;font-size:12px;">刷新</button>
-    `;
-    t.querySelector('button').addEventListener('click', () => {
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        reg && reg.waiting && reg.waiting.postMessage('SKIP_WAITING');
-      });
-    });
+    t.innerHTML = `<span>新版本已就绪</span><button type="button" class="btn primary" style="padding:4px 12px;font-size:12px;">刷新</button>`;
+    t.querySelector('button').addEventListener('click', () => { navigator.serviceWorker.getRegistration().then((reg) => { reg && reg.waiting && reg.waiting.postMessage('SKIP_WAITING'); }); });
     document.body.appendChild(t);
   };
 
-  // ---------- 启动 ----------
+  // 启动
   const init = () => {
     bindEvents();
+    // 启动大时钟
+    tickClock();
+    setInterval(tickClock, 1000);
     render('');
-    // 启动时若已启用同步，先拉取最新数据
-    if (loadSyncConfig().enabled && loadSyncConfig().token) {
-      doPull(true);
-    }
-    // 首屏渲染后再异步抓取元数据，避免阻塞首绘
-    if ('requestIdleCallback' in window) {
-      requestIdleCallback(() => enrichAll(false), { timeout: 1500 });
-    } else {
-      setTimeout(() => enrichAll(false), 300);
-    }
-    // 注册 Service Worker（不阻塞首屏）
+    if (loadSyncConfig().enabled && loadSyncConfig().token) { doPull(true); }
+    if ('requestIdleCallback' in window) { requestIdleCallback(() => enrichAll(false), { timeout: 1500 }); }
+    else { setTimeout(() => enrichAll(false), 300); }
     setTimeout(registerSW, 100);
   };
 
