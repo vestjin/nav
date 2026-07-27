@@ -30,10 +30,11 @@
     <aside class="sidebar">
       <div class="sidebar-title">分组</div>
       <nav id="categoryNav" class="category-nav" aria-label="书签分组"></nav>
+      <!-- 新增：分组管理按钮 -->
+      <button id="manageGroupBtn" class="sidebar-manage-btn">管理分组</button>
     </aside>
 
     <main class="main">
-      <!-- 超大字号时钟 -->
       <div class="clock-wrap" id="clockToggle" title="点击隐藏书签，进入专注模式">
         <div id="clockDisplay" class="clock-time">00:00:00</div>
         <div id="clockDate" class="clock-date"></div>
@@ -68,6 +69,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- 添加 / 编辑书签弹窗 -->
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2 id="modalTitle">添加书签</h2>
@@ -86,18 +88,25 @@
     </div>
   </div>
 
+  <!-- 云同步设置弹窗 (新增代理地址输入) -->
   <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2>云同步设置</h2>
       <p class="settings-hint">
         使用 GitHub Gist 跨设备同步书签。
         <a href="https://github.com/settings/tokens/new?scopes=gist&description=Personal%20Nav%20Sync" target="_blank" rel="noopener">创建 Token（仅需 Gists 权限）</a>
-        · 留空 Gist ID 时使用代码内置的默认 ID（适合单人部署）。
+        · 留空 Gist ID 时使用代码内置的默认 ID。
       </p>
       <form id="settingsForm">
         <label>GitHub Token <input id="ghToken" type="password" placeholder="ghp_…" autocomplete="off" /></label>
         <label>Gist ID <input id="ghGistId" type="text" placeholder="留空将自动创建" autocomplete="off" /></label>
         <label class="checkbox-label"><input id="enableSync" type="checkbox" /> 启用云同步</label>
+        
+        <div style="border-top: 1px solid var(--border); margin: 16px 0; padding-top: 16px;">
+          <p class="settings-hint" style="margin-bottom: 8px;">填写自建的 Cloudflare Worker 代理地址，可彻底解决国内抓取标题慢/失败的问题。（留空则使用公共代理）</p>
+          <label>抓取代理地址 <input id="proxyUrl" type="text" placeholder="https://your-worker.workers.dev/?url=" autocomplete="off" /></label>
+        </div>
+
         <div id="syncStatus" class="sync-status">未配置</div>
         <div class="modal-actions settings-actions">
           <button type="button" id="pullNow" class="btn ghost">⬇ 拉取</button>
@@ -106,6 +115,18 @@
           <button type="submit" class="btn primary">保存</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- 新增：分组管理弹窗 -->
+  <div id="groupModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2>分组管理</h2>
+      <p class="settings-hint">直接修改名称即可重命名分组（按回车或点击空白处生效）。删除分组会将组内书签移至“未分类”。</p>
+      <div id="groupList" class="group-list"></div>
+      <div class="modal-actions">
+        <button type="button" id="cancelGroup" class="btn primary">关闭</button>
+      </div>
     </div>
   </div>
 

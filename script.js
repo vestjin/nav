@@ -1,8 +1,5 @@
 /* =========================================================
- * 个人导航页 - 主逻辑 (性能优化版)
- * - 首屏秒出：不等待 Gist 和代理抓取
- * - 限流并发：避免阻塞主线程
- * - 国内优化：更换 favicon 源，代理加超时
+ * 个人导航页 - 主逻辑 (含 CF Worker 代理配置 + 分组管理)
  * ========================================================= */
 (function () {
   'use strict';
@@ -11,6 +8,7 @@
   const LS_META = 'personal-nav-meta-v1';
   const LS_ENGINE = 'personal-nav-engine-v1';
   const LS_SYNC = 'personal-nav-sync-v1';
+  const LS_PROXY = 'personal-nav-proxy-v1'; // 新增：CF Worker 代理地址
   const LS_COLLAPSED = 'personal-nav-collapsed-v1';
   const LS_CAT_ORDER = 'personal-nav-cat-order-v1';
   const LS_CURRENT_CAT = 'personal-nav-current-cat-v1';
@@ -56,18 +54,28 @@
   const loadMeta = () => { try { return JSON.parse(localStorage.getItem(LS_META)) || {}; } catch { return {}; } };
   const saveMeta = (m) => localStorage.setItem(LS_META, JSON.stringify(m));
 
-  // 优化：使用国内可直连的 favicon 服务，避免 Google s2 在国内超时
   const buildFaviconUrl = (pageUrl) => {
     const host = safeHost(pageUrl);
     if (!host) return '';
     return `https://favicon.im/${encodeURIComponent(host)}?larger=true`;
   };
 
-  const TITLE_PROXIES = [
+  // 备用公共代理
+  const FALLBACK_PROXIES = [
     (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
     (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
     (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
   ];
+
+  // 智能拼接代理 URL
+  const formatProxyUrl = (proxyStr, targetUrl) => {
+    const enc = encodeURIComponent(targetUrl);
+    if (proxyStr.includes('{url}')) return proxyStr.replace('{url}', enc);
+    if (proxyStr.endsWith('=')) return proxyStr + enc;
+    const hasQuery = proxyStr.includes('?');
+    if (hasQuery) return `${proxyStr}&url=${enc}`;
+    return `${proxyStr}?url=${enc}`;
+  };
 
   const extractTitle = (html) => {
     if (!html) return '';
@@ -78,9 +86,15 @@
     return '';
   };
 
-  // 优化：加入 4s 超时机制，防止单个慢代理拖垮整批抓取
   const fetchTitle = async (pageUrl) => {
-    for (const build of TITLE_PROXIES) {
+    const customProxy = (localStorage.getItem(LS_PROXY) || '').trim();
+    const proxies = [];
+    if (customProxy) {
+      proxies.push((u) => formatProxyUrl(customProxy, u));
+    }
+    proxies.push(...FALLBACK_PROXIES);
+
+    for (const build of proxies) {
       try {
         const endpoint = build(pageUrl);
         const controller = new AbortController();
@@ -88,10 +102,15 @@
         const res = await fetch(endpoint, { method: 'GET', signal: controller.signal });
         clearTimeout(timeoutId);
         if (!res.ok) continue;
+        
         const ct = res.headers.get('content-type') || '';
         let html = '';
-        if (ct.includes('application/json')) { const data = await res.json(); html = data.contents || data.body || data || ''; }
-        else { html = await res.text(); }
+        if (ct.includes('application/json')) {
+          const data = await res.json();
+          html = data.contents || data.body || data || '';
+        } else {
+          html = await res.text();
+        }
         const title = extractTitle(typeof html === 'string' ? html : '');
         if (title) return title;
       } catch (e) { continue; }
@@ -292,6 +311,7 @@
     }
   };
 
+  // ---------- 拖拽排序 ----------
   const drag = { kind: null, id: null, cat: null };
   const clearDragStates = () => { document.querySelectorAll('.dragging, .drag-over, .drag-over-before, .drag-over-after').forEach((el) => el.classList.remove('dragging', 'drag-over', 'drag-over-before', 'drag-over-after')); };
   const onDragStart = (e) => {
@@ -401,6 +421,7 @@
     saveCategoryOrder();
   };
 
+  // ---------- 书签弹窗 ----------
   const openModal = (bm) => {
     $('#modalTitle').textContent = bm ? '编辑书签' : '添加书签';
     $('#bmId').value = bm ? bm.id : '';
@@ -440,6 +461,83 @@
     enrichAll(false);
   };
 
+  // ---------- 分组管理弹窗 ----------
+  const openGroupManager = () => {
+    const listEl = $('#groupList');
+    // 获取所有存在的分组
+    const cats = Array.from(new Set(bookmarks.map(b => b.category || '未分类')));
+    const ordered = getSortedCategories([...new Set([...categoryOrder, ...cats])]);
+    
+    let html = '';
+    ordered.forEach(cat => {
+      const count = bookmarks.filter(b => (b.category || '未分类') === cat).length;
+      html += `
+        <div class="group-mgr-item" data-cat="${escapeHtml(cat)}">
+          <input type="text" class="group-mgr-input" value="${escapeHtml(cat)}" data-old="${escapeHtml(cat)}" />
+          <span class="group-mgr-count">${count} 项</span>
+          <button type="button" class="btn ghost danger group-mgr-del" data-cat="${escapeHtml(cat)}">删除</button>
+        </div>
+      `;
+    });
+    listEl.innerHTML = html;
+    $('#groupModal').classList.remove('hidden');
+  };
+  const closeGroupManager = () => $('#groupModal').classList.add('hidden');
+  
+  const onGroupMgrChange = (e) => {
+    if (!e.target.classList.contains('group-mgr-input')) return;
+    const oldName = e.target.dataset.old;
+    let newName = e.target.value.trim() || '未分类';
+    
+    if (oldName === newName) return;
+    // 如果新名称已存在，则视为合并
+    const isMerge = bookmarks.some(b => (b.category || '未分类') === newName);
+    
+    bookmarks.forEach(b => {
+      if ((b.category || '未分类') === oldName) b.category = newName;
+    });
+    
+    const idx = categoryOrder.indexOf(oldName);
+    if (idx >= 0) {
+      if (isMerge) {
+        categoryOrder.splice(idx, 1); // 移除旧的
+      } else {
+        categoryOrder[idx] = newName; // 重命名
+      }
+    }
+    saveCategoryOrder();
+    
+    if (currentCategory === oldName) saveCurrentCategory(isMerge ? '__all__' : newName);
+    
+    saveBookmarks(bookmarks);
+    render($('#searchInput').value);
+    e.target.dataset.old = newName; // 更新 old 值，防重复触发
+    openGroupManager(); // 刷新弹窗列表以更新数量
+  };
+
+  const onGroupMgrDel = (e) => {
+    const btn = e.target.closest('.group-mgr-del');
+    if (!btn) return;
+    const cat = btn.dataset.cat;
+    const count = bookmarks.filter(b => (b.category || '未分类') === cat).length;
+    
+    if (!confirm(`确定删除分组 "${cat}" 吗？\n该分组下的 ${count} 个书签将被移动至"未分类"。`)) return;
+    
+    bookmarks.forEach(b => {
+      if ((b.category || '未分类') === cat) b.category = '未分类';
+    });
+    const idx = categoryOrder.indexOf(cat);
+    if (idx >= 0) categoryOrder.splice(idx, 1);
+    
+    if (currentCategory === cat) saveCurrentCategory('__all__');
+    
+    saveBookmarks(bookmarks);
+    saveCategoryOrder();
+    render($('#searchInput').value);
+    openGroupManager(); // 刷新弹窗
+  };
+
+  // ---------- 导入导出 ----------
   const exportData = () => {
     const data = JSON.stringify(bookmarks, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -491,8 +589,6 @@
     await Promise.all(workers);
     return results;
   };
-  
-  // 优化：只抓取缺失项，降低并发到 2，去除首屏 toast 闪动
   const enrichAll = async (force = false) => {
     const meta = loadMeta();
     const targets = bookmarks.filter((bm) => {
@@ -509,7 +605,7 @@
   // 云同步
   const GIST_API = 'https://api.github.com';
   const GIST_FILE = 'nav-bookmarks.json';
-  const DEFAULT_GIST_ID = '***********'; // 替换为你的 Gist ID
+  const DEFAULT_GIST_ID = '***********'; // 替换为你的
   const loadSyncConfig = () => { try { return JSON.parse(localStorage.getItem(LS_SYNC)) || {}; } catch { return {}; } };
   const saveSyncConfig = (c) => localStorage.setItem(LS_SYNC, JSON.stringify(c));
   const getGistId = () => { const cfg = loadSyncConfig(); return (cfg.gistId && cfg.gistId.trim()) || (DEFAULT_GIST_ID.trim() || ''); };
@@ -608,6 +704,10 @@
     $('#ghGistId').value = cfg.gistId || '';
     $('#ghGistId').placeholder = hasDefault ? `默认：${DEFAULT_GIST_ID.slice(0, 8)}…（留空使用）` : '留空将自动创建私有 Gist';
     $('#enableSync').checked = !!cfg.enabled;
+    
+    // 读取代理设置
+    $('#proxyUrl').value = localStorage.getItem(LS_PROXY) || '';
+    
     let infoLine = '';
     if (effectiveId) { infoLine = usingDefault ? `当前使用 内置默认 Gist (${effectiveId.slice(0, 8)}…)` : `当前 Gist: ${effectiveId}`; }
     if (cfg.lastSync) { setSyncStatus(`上次同步：${new Date(cfg.lastSync).toLocaleString('zh-CN')}\n${infoLine}`, 'ok'); }
@@ -623,11 +723,16 @@
     cfg.gistId = $('#ghGistId').value.trim();
     cfg.enabled = $('#enableSync').checked;
     saveSyncConfig(cfg);
+    
+    // 保存代理设置
+    localStorage.setItem(LS_PROXY, $('#proxyUrl').value.trim());
+    
     showToast('设置已保存');
     if (cfg.enabled && cfg.token) { if (!getGistId()) doPush(); else doPull(); }
     else { setSyncIndicator('', ''); }
   };
 
+  // ---------- 事件绑定 ----------
   const bindEvents = () => {
     const engineSel = $('#webEngine');
     const savedEngine = localStorage.getItem(LS_ENGINE);
@@ -667,6 +772,13 @@
     $('#pullNow').addEventListener('click', () => { if (pendingPush) { if (!confirm('本地有未推送的修改，拉取会覆盖它们。是否继续？')) return; } doPull(false, true); });
     $('#pushNow').addEventListener('click', () => doPush());
 
+    // 分组管理事件
+    $('#manageGroupBtn').addEventListener('click', openGroupManager);
+    $('#cancelGroup').addEventListener('click', closeGroupManager);
+    $('#groupModal').addEventListener('click', (e) => { if (e.target.id === 'groupModal') closeGroupManager(); });
+    $('#groupList').addEventListener('change', onGroupMgrChange); // 失焦/回车时触发
+    $('#groupList').addEventListener('click', onGroupMgrDel);
+
     $('#categoryNav').addEventListener('click', onCategoryNavClick);
     $('#navContainer').addEventListener('click', onCardAction);
 
@@ -686,7 +798,7 @@
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        closeModal(); closeSettings();
+        closeModal(); closeSettings(); closeGroupManager();
         if (document.body.classList.contains('focus-mode')) document.body.classList.remove('focus-mode');
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); }
@@ -702,9 +814,7 @@
     if (!('serviceWorker' in navigator)) return;
     if (!/^https?:$/.test(location.protocol) && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
     navigator.serviceWorker.register('sw.js').then((reg) => {
-      if (reg.navigationPreload) {
-        reg.navigationPreload.enable();
-      }
+      if (reg.navigationPreload) { reg.navigationPreload.enable(); }
       reg.update().catch(() => {});
       reg.addEventListener('updatefound', () => {
         const newSw = reg.installing;
@@ -726,22 +836,13 @@
   // ---------- 启动：首屏优先 ----------
   const init = () => {
     bindEvents();
-    
-    // 1. 时钟立即启动（不依赖任何网络）
     tickClock();
     setInterval(tickClock, 1000);
-
-    // 2. 立即用本地数据渲染首屏（侧栏秒出）
-    render('');
-
-    // 3. 将网络请求推迟到首屏渲染完毕、浏览器空闲时执行
+    render(''); // 侧栏秒出
+    
     const startBackgroundTasks = () => {
       const cfg = loadSyncConfig();
-      if (cfg.enabled && cfg.token) {
-        // 静默拉取，失败不阻塞本地使用
-        doPull(true).catch(() => {});
-      }
-      // 只抓缺失的元数据
+      if (cfg.enabled && cfg.token) { doPull(true).catch(() => {}); }
       enrichAll(false);
     };
 
@@ -750,8 +851,6 @@
     } else {
       setTimeout(startBackgroundTasks, 500);
     }
-
-    // 4. Service Worker 延迟注册，避免与首屏资源竞争
     setTimeout(registerSW, 300);
   };
 

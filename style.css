@@ -472,3 +472,61 @@ body.focus-mode .search-bar { transform: scale(1.15); }
 .sidebar::-webkit-scrollbar-track { background: transparent; }
 .category-nav::-webkit-scrollbar { height: 4px; }
 .category-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ============== 分组管理样式 ============== */
+.sidebar-manage-btn {
+  margin-top: 12px;
+  width: 100%;
+  text-align: center;
+  padding: 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-manage-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
+.group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.group-mgr-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.group-mgr-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+  transition: border-color 0.15s;
+}
+.group-mgr-input:focus { border-color: var(--primary); }
+.group-mgr-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 50px;
+  text-align: right;
+}
+.btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+}
+.btn.danger:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
