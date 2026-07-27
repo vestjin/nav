@@ -77,11 +77,15 @@ button { font: inherit; }
   align-items: start;
 }
 
+/* ---------- 侧边栏修复：Flex 布局让按钮固定在底部 ---------- */
 .sidebar {
   position: sticky; top: 22px;
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 10px;
-  max-height: calc(100vh - 44px); overflow-y: auto;
+  max-height: calc(100vh - 44px); 
+  display: flex; /* 改为 flex 布局 */
+  flex-direction: column;
+  overflow: hidden; /* 防止外部滚动 */
 }
 
 .sidebar-title {
@@ -89,9 +93,15 @@ button { font: inherit; }
   text-transform: uppercase; letter-spacing: 1.5px;
   padding: 4px 8px 10px; border-bottom: 1px solid var(--border);
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
-.category-nav { display: flex; flex-direction: column; gap: 2px; }
+.category-nav { 
+  display: flex; flex-direction: column; gap: 2px; 
+  flex: 1; /* 占据剩余空间 */
+  overflow-y: auto; /* 超出时内部滚动 */
+  min-height: 0; 
+}
 
 .cat-item {
   display: flex; align-items: center; justify-content: space-between;
@@ -115,9 +125,27 @@ button { font: inherit; }
 }
 .cat-item.active .cat-count { background: var(--primary); color: #fff; }
 
+.sidebar-manage-btn {
+  margin-top: 10px;
+  flex-shrink: 0; /* 固定高度，不被挤压 */
+  width: 100%;
+  text-align: center;
+  padding: 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-manage-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+
 .main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 
-/* ============== 大时钟 ============== */
 .clock-wrap {
   display: flex; flex-direction: column; align-items: center;
   gap: 10px; padding: 10px 0 4px; cursor: pointer;
@@ -138,7 +166,6 @@ button { font: inherit; }
   margin-top: 4px;
 }
 
-/* ============== 大搜索框 ============== */
 .search-bar {
   position: relative; display: flex; align-items: center;
   height: 60px; background: var(--card); border: 1px solid var(--border);
@@ -404,6 +431,51 @@ button { font: inherit; }
   color: var(--text-dim); flex-wrap: wrap; gap: 6px;
 }
 
+/* ============== 分组管理样式 ============== */
+.group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.group-mgr-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.group-mgr-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+.group-mgr-input:focus { border-color: var(--primary); }
+.group-mgr-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 50px;
+  text-align: right;
+}
+.btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.btn.danger:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
 /* ============== 专注模式 ============== */
 body.focus-mode .layout { display: flex; }
 body.focus-mode .sidebar,
@@ -413,7 +485,6 @@ body.focus-mode .main { flex: 1; justify-content: center; }
 body.focus-mode .clock-wrap { transform: scale(1.2); margin-bottom: 80px; }
 body.focus-mode .search-bar { transform: scale(1.15); }
 
-/* ============== 响应式：窄屏保持左右分栏 ============== */
 @media (max-width: 860px) {
   .layout {
     grid-template-columns: 120px 1fr; 
@@ -472,61 +543,5 @@ body.focus-mode .search-bar { transform: scale(1.15); }
 .sidebar::-webkit-scrollbar-track { background: transparent; }
 .category-nav::-webkit-scrollbar { height: 4px; }
 .category-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-/* ============== 分组管理样式 ============== */
-.sidebar-manage-btn {
-  margin-top: 12px;
-  width: 100%;
-  text-align: center;
-  padding: 8px;
-  font-size: 13px;
-  border: 1px solid var(--border);
-  background: transparent;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text-dim);
-  transition: background 0.15s, color 0.15s;
-}
-.sidebar-manage-btn:hover {
-  background: var(--card-hover);
-  color: var(--text);
-}
-
-.group-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.group-mgr-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.group-mgr-input {
-  flex: 1;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 13px;
-  outline: none;
-  background: #fff;
-  transition: border-color 0.15s;
-}
-.group-mgr-input:focus { border-color: var(--primary); }
-.group-mgr-count {
-  font-size: 11px;
-  color: var(--text-dim);
-  min-width: 50px;
-  text-align: right;
-}
-.btn.danger {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: transparent;
-}
-.btn.danger:hover {
-  background: var(--danger);
-  color: #fff;
-  border-color: var(--danger);
-}
+.group-list::-webkit-scrollbar { width: 6px; }
+.group-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }

@@ -1,5 +1,5 @@
 /* =========================================================
- * 个人导航页 - 主逻辑 (含 CF Worker 代理配置 + 分组管理)
+ * 个人导航页 - 主逻辑 (完整修复版)
  * ========================================================= */
 (function () {
   'use strict';
@@ -8,7 +8,7 @@
   const LS_META = 'personal-nav-meta-v1';
   const LS_ENGINE = 'personal-nav-engine-v1';
   const LS_SYNC = 'personal-nav-sync-v1';
-  const LS_PROXY = 'personal-nav-proxy-v1'; // 新增：CF Worker 代理地址
+  const LS_PROXY = 'personal-nav-proxy-v1';
   const LS_COLLAPSED = 'personal-nav-collapsed-v1';
   const LS_CAT_ORDER = 'personal-nav-cat-order-v1';
   const LS_CURRENT_CAT = 'personal-nav-current-cat-v1';
@@ -24,6 +24,7 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const showToast = (msg, ms = 1800) => {
     const el = $('#toast');
+    if (!el) return;
     el.textContent = msg;
     el.classList.remove('hidden');
     clearTimeout(showToast._t);
@@ -60,14 +61,12 @@
     return `https://favicon.im/${encodeURIComponent(host)}?larger=true`;
   };
 
-  // 备用公共代理
   const FALLBACK_PROXIES = [
     (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
     (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
     (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
   ];
 
-  // 智能拼接代理 URL
   const formatProxyUrl = (proxyStr, targetUrl) => {
     const enc = encodeURIComponent(targetUrl);
     if (proxyStr.includes('{url}')) return proxyStr.replace('{url}', enc);
@@ -98,7 +97,7 @@
       try {
         const endpoint = build(pageUrl);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s 超时
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
         const res = await fetch(endpoint, { method: 'GET', signal: controller.signal });
         clearTimeout(timeoutId);
         if (!res.ok) continue;
@@ -132,7 +131,6 @@
     return { title, icon };
   };
 
-  // ---------- 大时钟逻辑 ----------
   const tickClock = () => {
     const display = $('#clockDisplay');
     if (!display) return;
@@ -311,7 +309,6 @@
     }
   };
 
-  // ---------- 拖拽排序 ----------
   const drag = { kind: null, id: null, cat: null };
   const clearDragStates = () => { document.querySelectorAll('.dragging, .drag-over, .drag-over-before, .drag-over-after').forEach((el) => el.classList.remove('dragging', 'drag-over', 'drag-over-before', 'drag-over-after')); };
   const onDragStart = (e) => {
@@ -421,7 +418,6 @@
     saveCategoryOrder();
   };
 
-  // ---------- 书签弹窗 ----------
   const openModal = (bm) => {
     $('#modalTitle').textContent = bm ? '编辑书签' : '添加书签';
     $('#bmId').value = bm ? bm.id : '';
@@ -461,10 +457,9 @@
     enrichAll(false);
   };
 
-  // ---------- 分组管理弹窗 ----------
   const openGroupManager = () => {
     const listEl = $('#groupList');
-    // 获取所有存在的分组
+    if (!listEl) return;
     const cats = Array.from(new Set(bookmarks.map(b => b.category || '未分类')));
     const ordered = getSortedCategories([...new Set([...categoryOrder, ...cats])]);
     
@@ -482,7 +477,10 @@
     listEl.innerHTML = html;
     $('#groupModal').classList.remove('hidden');
   };
-  const closeGroupManager = () => $('#groupModal').classList.add('hidden');
+  const closeGroupManager = () => {
+    const modal = $('#groupModal');
+    if (modal) modal.classList.add('hidden');
+  };
   
   const onGroupMgrChange = (e) => {
     if (!e.target.classList.contains('group-mgr-input')) return;
@@ -490,7 +488,6 @@
     let newName = e.target.value.trim() || '未分类';
     
     if (oldName === newName) return;
-    // 如果新名称已存在，则视为合并
     const isMerge = bookmarks.some(b => (b.category || '未分类') === newName);
     
     bookmarks.forEach(b => {
@@ -500,9 +497,9 @@
     const idx = categoryOrder.indexOf(oldName);
     if (idx >= 0) {
       if (isMerge) {
-        categoryOrder.splice(idx, 1); // 移除旧的
+        categoryOrder.splice(idx, 1);
       } else {
-        categoryOrder[idx] = newName; // 重命名
+        categoryOrder[idx] = newName;
       }
     }
     saveCategoryOrder();
@@ -511,8 +508,7 @@
     
     saveBookmarks(bookmarks);
     render($('#searchInput').value);
-    e.target.dataset.old = newName; // 更新 old 值，防重复触发
-    openGroupManager(); // 刷新弹窗列表以更新数量
+    openGroupManager();
   };
 
   const onGroupMgrDel = (e) => {
@@ -534,10 +530,9 @@
     saveBookmarks(bookmarks);
     saveCategoryOrder();
     render($('#searchInput').value);
-    openGroupManager(); // 刷新弹窗
+    openGroupManager();
   };
 
-  // ---------- 导入导出 ----------
   const exportData = () => {
     const data = JSON.stringify(bookmarks, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -602,10 +597,9 @@
     render($('#searchInput').value);
   };
 
-  // 云同步
   const GIST_API = 'https://api.github.com';
   const GIST_FILE = 'nav-bookmarks.json';
-  const DEFAULT_GIST_ID = '***********'; // 替换为你的
+  const DEFAULT_GIST_ID = '***********';
   const loadSyncConfig = () => { try { return JSON.parse(localStorage.getItem(LS_SYNC)) || {}; } catch { return {}; } };
   const saveSyncConfig = (c) => localStorage.setItem(LS_SYNC, JSON.stringify(c));
   const getGistId = () => { const cfg = loadSyncConfig(); return (cfg.gistId && cfg.gistId.trim()) || (DEFAULT_GIST_ID.trim() || ''); };
@@ -704,10 +698,7 @@
     $('#ghGistId').value = cfg.gistId || '';
     $('#ghGistId').placeholder = hasDefault ? `默认：${DEFAULT_GIST_ID.slice(0, 8)}…（留空使用）` : '留空将自动创建私有 Gist';
     $('#enableSync').checked = !!cfg.enabled;
-    
-    // 读取代理设置
     $('#proxyUrl').value = localStorage.getItem(LS_PROXY) || '';
-    
     let infoLine = '';
     if (effectiveId) { infoLine = usingDefault ? `当前使用 内置默认 Gist (${effectiveId.slice(0, 8)}…)` : `当前 Gist: ${effectiveId}`; }
     if (cfg.lastSync) { setSyncStatus(`上次同步：${new Date(cfg.lastSync).toLocaleString('zh-CN')}\n${infoLine}`, 'ok'); }
@@ -723,16 +714,12 @@
     cfg.gistId = $('#ghGistId').value.trim();
     cfg.enabled = $('#enableSync').checked;
     saveSyncConfig(cfg);
-    
-    // 保存代理设置
     localStorage.setItem(LS_PROXY, $('#proxyUrl').value.trim());
-    
     showToast('设置已保存');
     if (cfg.enabled && cfg.token) { if (!getGistId()) doPush(); else doPull(); }
     else { setSyncIndicator('', ''); }
   };
 
-  // ---------- 事件绑定 ----------
   const bindEvents = () => {
     const engineSel = $('#webEngine');
     const savedEngine = localStorage.getItem(LS_ENGINE);
@@ -772,12 +759,18 @@
     $('#pullNow').addEventListener('click', () => { if (pendingPush) { if (!confirm('本地有未推送的修改，拉取会覆盖它们。是否继续？')) return; } doPull(false, true); });
     $('#pushNow').addEventListener('click', () => doPush());
 
-    // 分组管理事件
-    $('#manageGroupBtn').addEventListener('click', openGroupManager);
-    $('#cancelGroup').addEventListener('click', closeGroupManager);
-    $('#groupModal').addEventListener('click', (e) => { if (e.target.id === 'groupModal') closeGroupManager(); });
-    $('#groupList').addEventListener('change', onGroupMgrChange); // 失焦/回车时触发
-    $('#groupList').addEventListener('click', onGroupMgrDel);
+    const manageGroupBtn = $('#manageGroupBtn');
+    const cancelGroupBtn = $('#cancelGroup');
+    const groupModal = $('#groupModal');
+    const groupList = $('#groupList');
+    
+    if (manageGroupBtn) manageGroupBtn.addEventListener('click', openGroupManager);
+    if (cancelGroupBtn) cancelGroupBtn.addEventListener('click', closeGroupManager);
+    if (groupModal) groupModal.addEventListener('click', (e) => { if (e.target.id === 'groupModal') closeGroupManager(); });
+    if (groupList) {
+      groupList.addEventListener('change', onGroupMgrChange);
+      groupList.addEventListener('click', onGroupMgrDel);
+    }
 
     $('#categoryNav').addEventListener('click', onCategoryNavClick);
     $('#navContainer').addEventListener('click', onCardAction);
@@ -833,12 +826,11 @@
     document.body.appendChild(t);
   };
 
-  // ---------- 启动：首屏优先 ----------
   const init = () => {
     bindEvents();
     tickClock();
     setInterval(tickClock, 1000);
-    render(''); // 侧栏秒出
+    render('');
     
     const startBackgroundTasks = () => {
       const cfg = loadSyncConfig();

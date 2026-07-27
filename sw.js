@@ -1,5 +1,5 @@
 /* ========================================================= Service Worker - 个人导航 ========================================================= */ 
-const CACHE_VERSION = 'nav-v2'; // 版本号升级，自动清理旧缓存
+const CACHE_VERSION = 'nav-v4'; // 升级版本号，强制刷新旧缓存
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -16,7 +16,6 @@ const SHELL_ASSETS = [
   './apple-touch-icon.png',
 ];
 
-// 安装：预缓存所有 shell 资源
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
@@ -27,7 +26,6 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// 激活：清理旧版本缓存
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
@@ -38,13 +36,11 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 拦截请求
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // ---- 跨域 ----
   if (url.origin !== self.location.origin) {
     if (url.host === 'api.github.com') {
       event.respondWith(networkFirst(req, RUNTIME_CACHE));
@@ -58,11 +54,14 @@ self.addEventListener('fetch', (event) => {
       event.respondWith(staleWhileRevalidate(req, RUNTIME_CACHE));
       return;
     }
+    if (url.host.endsWith('.workers.dev')) {
+      event.respondWith(fetch(req));
+      return;
+    }
     event.respondWith(networkFirst(req, RUNTIME_CACHE));
     return;
   }
 
-  // ---- 同源 ----
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(async () => {
@@ -76,12 +75,10 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(cacheFirst(req, SHELL_CACHE));
 });
 
-// 接收页面消息
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });
 
-// ---- 策略实现 ----
 async function cacheFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(req);
