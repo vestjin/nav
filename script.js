@@ -181,6 +181,9 @@
     const container = $('#navContainer');
     const kw = filter.trim().toLowerCase();
 
+    // 搜索时强制使用全部分类
+    const effectiveCategory = (kw ? '__all__' : currentCategory);
+
     const allCats = {};
     bookmarks.forEach((b) => { const cat = b.category || '未分类'; if (!allCats[cat]) allCats[cat] = { all: [], shown: [] }; allCats[cat].all.push(b); });
 
@@ -191,11 +194,11 @@
       categoryOrder = present.concat(newOnes); saveCategoryOrder();
     }
 
-    if (currentCategory !== '__all__' && !allCats[currentCategory]) saveCurrentCategory('__all__');
+    if (effectiveCategory !== '__all__' && !allCats[effectiveCategory]) saveCurrentCategory('__all__');
 
     let scopedCats;
-    if (currentCategory === '__all__') { scopedCats = allCats; }
-    else { scopedCats = {}; if (allCats[currentCategory]) scopedCats[currentCategory] = allCats[currentCategory]; }
+    if (effectiveCategory === '__all__') { scopedCats = allCats; }
+    else { scopedCats = {}; if (allCats[effectiveCategory]) scopedCats[effectiveCategory] = allCats[effectiveCategory]; }
 
     Object.keys(scopedCats).forEach((cat) => {
       scopedCats[cat].shown = scopedCats[cat].all.filter((b) => {
@@ -209,7 +212,9 @@
 
     const groupNameEl = $('#currentGroupName');
     const groupCountEl = $('#currentGroupCount');
-    if (groupNameEl) groupNameEl.textContent = currentCategory === '__all__' ? '全部书签' : currentCategory;
+    if (groupNameEl) {
+      groupNameEl.textContent = kw ? '全部书签' : (currentCategory === '__all__' ? '全部书签' : currentCategory);
+    }
     if (groupCountEl) groupCountEl.textContent = (kw && scopedTotal > 0) ? `${filtered.length} / ${scopedTotal}` : `${scopedTotal} 项`;
 
     if (filtered.length === 0) {
@@ -636,7 +641,8 @@
     if (!content) return null;
     const arr = JSON.parse(content);
     if (!Array.isArray(arr)) throw new Error('Gist 内容不是书签数组');
-    return arr;
+    // 返回数据和更新时间
+    return { data: arr, updated_at: data.updated_at };
   };
   const pushToGist = async (bookmarks) => {
     const cfg = loadSyncConfig();
@@ -656,41 +662,80 @@
   const markPending = () => { if (!loadSyncConfig().enabled) return; pendingPush = true; setSyncIndicator('unsaved', '●'); setSyncStatus('本地有未推送的修改', 'busy'); };
   const doPull = async (silent = false, force = false) => {
     if (syncing) return;
-    if (pendingPush && !force) { if (!silent) { setSyncIndicator('unsaved', '●'); setSyncStatus('本地有未推送的修改，请先点击「推送到 Gist」', 'busy'); } return; }
-    syncing = true; setSyncIndicator('syncing', '⏳'); setSyncStatus('正在拉取…', 'busy');
+    if (pendingPush && !force) {
+      // 提示用户冲突
+      const confirmMsg = '本地有未推送的修改，拉取将覆盖本地数据，确定继续吗？';
+      if (!confirm(confirmMsg)) {
+        setSyncIndicator('unsaved', '●');
+        setSyncStatus('已取消拉取，请先推送或再次确认', 'busy');
+        return;
+      }
+    }
+    syncing = true;
+    setSyncIndicator('syncing', '⏳');
+    setSyncStatus('正在拉取…', 'busy');
     try {
-      const remote = await pullFromGist();
-      if (pendingPush && !force) { if (!silent) { setSyncIndicator('unsaved', '●'); setSyncStatus('本地有新修改，已取消本次拉取', 'busy'); } return; }
-      if (remote === null) { if (!silent) setSyncStatus('Gist 为空', ''); }
-      else if (remote.length === 0) { if (!silent) setSyncStatus('Gist 中无书签', ''); }
-      else {
-        bookmarks = remote; saveBookmarks(bookmarks);
-        render($('#searchInput').value); pendingPush = false;
+      const result = await pullFromGist();
+      if (result === null) {
+        if (!silent) setSyncStatus('Gist 为空', '');
+        return;
+      }
+      const { data: remote, updated_at } = result;
+      // 如果远程为空数组，也当作成功
+      if (remote.length === 0) {
+        if (!silent) setSyncStatus('Gist 中无书签', '');
+      } else {
+        // 覆盖本地
+        bookmarks = remote;
+        saveBookmarks(bookmarks);
+        render($('#searchInput').value);
+        pendingPush = false; // 清除未推送标记
+        // 保存同步时间
+        const cfg = loadSyncConfig();
+        cfg.lastSync = updated_at ? new Date(updated_at).getTime() : Date.now();
+        saveSyncConfig(cfg);
         if (!silent) showToast('已从 Gist 拉取 ' + bookmarks.length + ' 项');
       }
       setSyncIndicator('synced', '✓');
-      setSyncStatus('已同步 · ' + new Date(loadSyncConfig().lastSync || Date.now()).toLocaleString('zh-CN'), 'ok');
+      const syncTime = updated_at ? new Date(updated_at).toLocaleString('zh-CN') : new Date().toLocaleString('zh-CN');
+      setSyncStatus('已同步 · ' + syncTime, 'ok');
       setTimeout(() => setSyncIndicator('', ''), 1500);
     } catch (err) {
-      setSyncIndicator('error', '⚠'); setSyncStatus('拉取失败：' + err.message, 'error');
+      setSyncIndicator('error', '⚠');
+      setSyncStatus('拉取失败：' + err.message, 'error');
       if (!silent) showToast('拉取失败：' + err.message);
-    } finally { syncing = false; }
+    } finally {
+      syncing = false;
+    }
   };
   const doPush = async () => {
     if (syncing) return;
-    syncing = true; setSyncIndicator('syncing', '⏳'); setSyncStatus('正在推送…', 'busy');
+    syncing = true;
+    setSyncIndicator('syncing', '⏳');
+    setSyncStatus('正在推送…', 'busy');
     try {
       await pushToGist(bookmarks);
-      setSyncIndicator('synced', '✓'); setSyncStatus('已同步 · ' + new Date().toLocaleString('zh-CN'), 'ok');
+      // 推送成功后，本地的 lastSync 更新为当前时间
+      const cfg = loadSyncConfig();
+      cfg.lastSync = Date.now();
+      saveSyncConfig(cfg);
+      setSyncIndicator('synced', '✓');
+      setSyncStatus('已同步 · ' + new Date().toLocaleString('zh-CN'), 'ok');
       showToast('已推送到 Gist');
-      setTimeout(() => setSyncIndicator('', ''), 1500); pendingPush = false;
+      setTimeout(() => setSyncIndicator('', ''), 1500);
+      pendingPush = false;
     } catch (err) {
-      setSyncIndicator('error', '⚠'); setSyncStatus('推送失败：' + err.message, 'error');
+      setSyncIndicator('error', '⚠');
+      setSyncStatus('推送失败：' + err.message, 'error');
       showToast('推送失败：' + err.message);
-    } finally { syncing = false; }
+    } finally {
+      syncing = false;
+    }
   };
   const openSettings = () => {
     const cfg = loadSyncConfig();
+    const lastSyncTime = cfg.lastSync ? new Date(cfg.lastSync).toLocaleString('zh-CN') : '从未同步';
+    setSyncStatus(`上次同步：${lastSyncTime}`, cfg.lastSync ? 'ok' : '');
     const effectiveId = getGistId();
     const hasDefault = !!DEFAULT_GIST_ID.trim();
     const usingDefault = isUsingDefaultGist();
