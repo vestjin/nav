@@ -1,5 +1,5 @@
 /* ========================================================= Service Worker - 个人导航 ========================================================= */ 
-const CACHE_VERSION = 'nav-v4'; // 升级版本号，强制刷新旧缓存
+const CACHE_VERSION = 'nav-v5'; // 升级版本号，强制刷新旧缓存
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
