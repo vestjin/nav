@@ -1,292 +1,129 @@
-# 个人导航页
+# 🚀 个人导航页 – Personal Nav
 
-> 轻量、零依赖、跨设备同步的个人导航首页。支持 PWA 安装到桌面 / 完全离线。10 个文件，~92 KB，无构建步骤。
+一个轻量级、可离线使用的个人书签导航页，支持分组管理、拖拽排序、笔记备注、云同步（GitHub Gist）、PWA 和专注模式。所有数据存储在浏览器本地，安全可控，非常适合作为个人起始页或团队共享导航。
 
-![license](https://img.shields.io/badge/license-MIT-green)
-![size](https://img.shields.io/badge/size-92%20KB-blue)
-![deps](https://img.shields.io/badge/deps-0-success)
-![pwa](https://img.shields.io/badge/PWA-ready-blueviolet)
 
-## ✨ 特性
+---
 
-- **零依赖、零构建** — 双击 `index.html` 就能用
-- **PWA 支持** — 安装到桌面 / 移动主屏，完全离线可用
-- **多设备同步** — 通过 GitHub Gist 跨浏览器同步书签，**无需自建服务器**
-- **自动抓取** — 自动获取 favicon 和页面标题，缓存 7 天
-- **护眼主题** — 米黄配色，长时间使用不刺眼
-- **极速加载** — 首屏 < 20 KB（gzip），Service Worker 缓存后接近 0 ms
-- **完整 CRUD** — 增删改查、搜索、导入导出
-- **响应式** — 桌面 / 平板 / 手机自适应
-- **隐私优先** — 数据存在你的浏览器或你的私有 Gist，不经过第三方
+## ✨ 特色功能
 
-## 🚀 快速开始
+- **📖 书签管理** – 增删改查，支持名称、网址、分类、图标和自定义笔记（📝 标记）。
+- **📂 分组分类** – 任意创建分组，点击切换，拖拽调整顺序，可折叠/展开。
+- **🔍 实时搜索** – 搜索书签名称、网址、分类和笔记内容，回车直接调用搜索引擎（Bing/Google/DuckDuckGo/Yandex）。
+- **🔄 拖拽排序** – 卡片可自由拖动（同组或跨组），分组标题也可拖动排序。
+- **📝 笔记功能** – 每个书签可添加备注，卡片右下角显示 📝 徽章提醒。
+- **⏳ 元数据自动抓取** – 自动获取网页标题和 favicon，可手动刷新更新。
+- **☁️ 云同步** – 通过 GitHub Gist 跨设备同步书签（需自行创建 Token 和 Gist ID）。
+- **🧘 专注模式** – 点击时钟隐藏侧栏和书签，只保留时钟和搜索框，帮助集中注意力。
+- **📦 导入/导出** – JSON 格式备份/恢复，按 URL 合并去重。
+- **📱 响应式设计** – 适配桌面、平板和手机，移动端体验流畅。
+- **⚡ PWA 支持** – 可安装到桌面，离线访问（需配置 Service Worker）。
 
-### 本地预览
+---
 
-直接双击 `index.html`，或在 `nav/` 目录下运行：
+## 🚀 快速部署
 
-```bash
-# Python
-python -m http.server 8000
+### 部署到 GitHub Pages（推荐）
+1. Fork 本仓库或下载代码。
+2. 修改 `index.html` 中静态资源的版本号（可选，用于缓存更新）。
+3. 将代码推送到您的 GitHub 仓库。
+4. 进入仓库 **Settings → Pages**，选择分支（如 `main`）和根目录，保存。
+5. 等待几分钟，您的导航页将发布在 `https://<username>.github.io/<repo>/`。
 
-# Node.js
-npx serve .
+### 本地运行
+直接打开 `index.html` 即可（推荐使用 Live Server 等工具避免跨域问题）。
 
-# 然后访问 http://localhost:8000
-```
+---
 
-> 💡 `file://` 协议下抓取页面标题会被浏览器拦截（CORS），**用本地 http 服务即可解决**。Service Worker 也仅在 `http(s)://` / `localhost` 下注册。
+## ⚙️ 配置
 
-### 部署到 GitHub Pages
+### 云同步（GitHub Gist）
+1. **创建 GitHub Token**  
+   访问 [GitHub Tokens](https://github.com/settings/tokens/new) 新建 Token，仅勾选 `gist` 权限，复制生成的 Token。
 
-```bash
-cd nav
-git init
-git add .
-git commit -m "init: personal nav"
-# 在 GitHub 创建仓库（例如 nav-page），然后：
-git branch -M main
-git remote add origin https://github.com/<你的用户名>/nav-page.git
-git push -u origin main
-```
+2. **创建 Gist**  
+   访问 [Gist](https://gist.github.com/) 创建一个新的**私有** Gist（内容任意，如一个空 JSON 文件），创建后复制 URL 最后一段（即 Gist ID）。
 
-进入仓库 **Settings → Pages → Build and deployment → Branch: `main` / `/ (root)` → Save**。
+3. **填写配置**  
+   点击导航页右上角的 ☁ 按钮，填入 Token 和 Gist ID，启用同步。**注意：系统不会自动创建 Gist，请务必手动创建并填写 ID。**
 
-几分钟后即可访问 `https://<你的用户名>.github.io/nav-page/`。
+4. **使用**  
+   配置保存后，点击“拉取”下载云端数据，点击“推送”上传本地数据。本地有未推送修改时，同步指示器会显示 ●。
 
-## 📲 安装为 PWA
+### 抓取代理（可选）
+若在国内无法正常抓取网页标题，可设置自建的 Cloudflare Worker 代理地址，填写在同步设置页面下方。留空则使用公共代理（可能不稳定）。
 
-部署到 `https://` 后（GitHub Pages 自动满足），可安装到桌面 / 主屏：
+---
 
-| 平台 | 安装方式 |
-| --- | --- |
-| **Chrome / Edge (桌面)** | 地址栏右侧出现 `⊕` 安装按钮，或菜单 → "安装 个人导航" |
-| **Android (Chrome)** | 菜单 → "添加到主屏幕" / "安装应用" |
-| **iOS Safari** | 分享 → "添加到主屏幕" |
-| **macOS Safari** | 文件 → "添加到 Dock" |
+## 🖥️ 使用指南
 
-安装后：
-- 像原生 App 一样独立窗口运行（无浏览器 UI）
-- 离线完全可用
-- 点击图标直达，不显示浏览器启动页
+### 基础操作
+- **添加书签**：点击右上角 `＋` 按钮，填写网址、名称、分类（可选）和笔记（可选）。
+- **编辑书签**：鼠标悬停卡片，点击 ✎ 按钮。
+- **删除书签**：鼠标悬停卡片，点击 🗑 按钮。
+- **切换分组**：点击左侧侧栏中的分组名称。
+- **折叠分组**：点击分组标题旁的 `▸` 箭头或标题区域。
+- **搜索书签**：在顶部搜索框输入关键词，实时过滤。
+- **网页搜索**：在搜索框输入关键词后回车（或点击 →），使用所选搜索引擎打开新标签页。
 
-当代码更新后再次访问，页面底部会出现 **"新版本已就绪"** 提示，点"刷新"即可生效。
+### 拖拽排序
+- **卡片**：长按卡片左上角的 `⠿` 手柄拖动，可调整同组或跨组顺序。
+- **分组**：长按分组标题前的 `⠿` 手柄拖动，可调整分组顺序。
 
-> ⚠️ PWA 功能需要 **HTTPS**（GitHub Pages 默认提供）。本地 `file://` 或 `http://` 局域网调试时浏览器会跳过安装。
+### 专注模式
+点击时钟区域，隐藏侧栏和所有书签，再次点击恢复。
 
-## ☁️ 配置云同步（可选）
+### 快捷键
+- `Ctrl + K`：聚焦搜索框。
+- `Esc`：关闭所有弹窗 / 退出专注模式。
 
-云同步让你的多设备 / 多浏览器共享同一份书签。
+---
 
-### 1. 创建 GitHub Token
+## 💾 数据与备份
+- **存储位置**：所有数据保存在浏览器的 `localStorage` 中。
+- **导出**：点击右上角 `⬆` 导出为 JSON 文件。
+- **导入**：点击 `⬇` 导入 JSON 文件（按 URL 合并，不覆盖已有项）。
+- **提醒**：清除浏览器缓存或卸载浏览器扩展可能会导致数据丢失，请定期导出备份。
 
-访问 [New Token](https://github.com/settings/tokens/new?scopes=gist&description=Personal%20Nav%20Sync)，**只勾选 `gist` 权限**，生成后复制 Token（形如 `ghp_xxx…`）。
+---
 
-### 2. （推荐）填入默认 Gist ID
+## 🛠 技术栈
+- 原生 HTML5 / CSS3 / JavaScript（ES6+）
+- localStorage 数据持久化
+- GitHub Gist API（云同步）
+- Service Worker + Web App Manifest（PWA）
+- 完全无依赖，零第三方库
 
-编辑 `script.js`，把：
+---
 
-```js
-const DEFAULT_GIST_ID = '你的默认GistID';
-```
+## 📌 注意事项
+- **Token 安全**：GitHub Token 以明文存储在 `localStorage`，请勿在公共设备上使用。
+- **Gist ID 必须手动创建**：系统不会自动创建，请务必先创建 Gist 并填入 ID。
+- **浏览器兼容性**：推荐使用最新版 Chrome、Edge 或 Firefox，拖拽功能需现代浏览器支持。
+- **缓存更新**：若部署后页面未更新，请清除浏览器缓存或注销 Service Worker（开发者工具 → Application → Service Workers → Unregister），然后强制刷新。
 
-替换成你自己的 Gist ID。**所有设备部署同一份代码 → 默认就同步到同一个 Gist。**
+---
 
-获取 Gist ID：
-1. 访问 [gist.github.com](https://gist.github.com) → 创建新 Gist（内容随便，设为 **Secret**）
-2. 创建后 URL 形如 `https://gist.github.com/<用户名>/abc123def456...`
-3. `abc123def456...` 这部分就是 Gist ID
+## 🤝 贡献
+欢迎提交 Issue 和 Pull Request！若有新功能建议或 Bug 修复，请先开 Issue 讨论。
 
-> 不想在代码里硬编码？保持 `DEFAULT_GIST_ID` 为空，用户在同步设置里填入自己的 Gist ID 即可。
+---
 
-### 3. 启用同步
-
-打开网页 → 右上角 **☁** → 粘贴 Token → 勾选 ✅ 启用云同步 → 保存。
-
-首次启用会自动创建 Gist（如果既无默认也无用户 ID）。
-
-## ⌨️ 快捷键
-
-| 快捷键 | 功能 |
-| --- | --- |
-| `Ctrl` / `⌘` + `K` | 聚焦书签搜索框 |
-| `Esc` | 关闭弹窗 |
-| `Enter`（网页搜索框） | 在选中引擎中搜索 |
-| 点击分类标题 | 收起 / 展开该分类 |
-| 拖动卡片 ⠿ | 排序 / 跨分类移动 |
-| 拖动分类左侧 ⠿ | 调整分类顺序 |
-
-## 📁 文件结构
-
-```
-nav/
-├── index.html  ( 6 KB)   - 页面骨架
-├── style.css   (13 KB)   - 护眼主题，CSS 变量驱动
-├── data.js     ( 3 KB)   - 默认书签（出厂种子）
-├── script.js   (29 KB)   - 所有交互逻辑
-├── sw.js       ( 4 KB)   - Service Worker（离线缓存）
-├── manifest.webmanifest   - PWA 配置
-├── icon-192.png / icon-512.png  - 应用图标
-├── icon-maskable-512.png        - Android 圆形蒙版图标
-├── apple-touch-icon.png         - iOS 主屏图标
-├── LICENSE
-└── README.md
-```
-
-无构建工具、无 `node_modules`、无打包。
+## 📄 许可证
+MIT License © 2022-2026 个人导航
 
-## 💾 数据存储
+---
 
-| 类型 | 存储位置 | 用途 |
-| --- | --- | --- |
-| 书签数据 | `localStorage[personal-nav-bookmarks-v1]` | 主存储 |
-| 抓取缓存 | `localStorage[personal-nav-meta-v1]` | favicon + 标题，7 天 TTL |
-| 引擎选择 | `localStorage[personal-nav-engine-v1]` | 上次用的搜索引擎 |
-| 同步配置 | `localStorage[personal-nav-sync-v1]` | Token + Gist ID |
-| 折叠状态 | `localStorage[personal-nav-collapsed-v1]` | 折叠的分类名数组 |
-| 分类顺序 | `localStorage[personal-nav-cat-order-v1]` | 分类显示顺序 |
-| 云端备份 | GitHub Gist（私有） | 多设备同步 |
-| 离线缓存 | Cache Storage | PWA 离线访问（SW 管理） |
-
-**首次打开**：用 `data.js` 的 `DEFAULT_BOOKMARKS` 种子初始化 localStorage。
-**之后**：所有操作直接写 localStorage，不再读 `data.js`。
-**跨设备**：通过 Gist 同步（最后写入获胜策略）。
-**离线**：Service Worker 缓存所有静态资源，断网仍可访问本地书签。
+## 🙋 常见问题
+**Q：为什么我配置了同步，拉取/推送仍然失败？**  
+A：请确保 Token 有 `gist` 权限，Gist ID 正确，且该 Gist 存在。若 Gist 为空或格式不符，可先推送一次创建结构。
 
-## 🔧 自定义
+**Q：如何更新 Service Worker 缓存的资源？**  
+A：修改 `sw.js` 中的 `CACHE_NAME` 版本号，并修改 `index.html` 中静态资源的版本参数（如 `?v=xxx`），推送后用户刷新即可自动更新。
 
-### 修改默认书签
+**Q：书签数据会丢失吗？**  
+A：数据存储在浏览器本地，除非手动清除或浏览器清理数据，否则不会丢失。建议定期导出备份。
 
-编辑 `data.js`：
+---
 
-```js
-window.DEFAULT_BOOKMARKS = [
-  { id: 'bm-github', name: 'GitHub', url: 'https://github.com', icon: '', category: '常用' },
-  // ... 自行增删
-];
-```
-
-字段说明：
-
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `id` | ✅ | 唯一字符串，建议 `bm-<slug>` 格式 |
-| `name` |  | 留空则自动抓取页面标题 |
-| `url` | ✅ | 目标网址 |
-| `icon` |  | 留空则自动抓取 favicon |
-| `category` |  | 分类名（影响分组） |
-
-### 修改主题色
-
-`style.css` 顶部 CSS 变量：
-
-```css
-:root {
-  --bg:        #f1ecdf;   /* 页面背景 */
-  --card:      #fbf8f0;   /* 卡片背景 */
-  --text:      #3b352c;   /* 正文文字 */
-  --text-dim:  #8a8273;   /* 次要文字 */
-  --primary:   #6f9472;   /* 主色（草绿） */
-  --border:    #e3dccb;   /* 边框 */
-  --card-hover:#ede7d6;   /* 卡片悬停 */
-  --danger:    #b06b5c;   /* 危险/删除 */
-}
-```
-
-> 修改 `--primary` 后，记得同步修改 `manifest.webmanifest` 里的 `theme_color` 和 `background_color`，PWA 启动画面和状态栏才会跟着变色。
-
-### 替换 PWA 图标
-
-把 `icon-192.png` / `icon-512.png` / `icon-maskable-512.png` 替换成你自己的设计（保持文件名和尺寸）。**maskable 图标**四周要留 ~10% 安全区，避免被系统裁掉内容。
-
-### 添加更多搜索引擎
-
-`script.js` 中：
-
-```js
-const ENGINES = {
-  bing:       { name: 'Bing',       url: (q) => `https://www.bing.com/search?q=${encodeURIComponent(q)}` },
-  google:     { name: 'Google',     url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}` },
-  duckduckgo: { name: 'DuckDuckGo', url: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}` },
-  yandex:     { name: 'Yandex',     url: (q) => `https://yandex.com/search/?text=${encodeURIComponent(q)}` },
-  // 加新引擎：baidu: { name: '百度', url: (q) => `https://www.baidu.com/s?wd=${encodeURIComponent(q)}` },
-};
-```
-
-`index.html` 的 `<select id="webEngine">` 同步加 `<option value="baidu">百度</option>`。
-
-## 🛡️ 安全说明
-
-- **Token 存在你浏览器的 localStorage**，不上传到任何服务器
-- 建议用 [Fine-grained token](https://github.com/settings/tokens?type=beta)，只授权当前账号的 `Gists: Read and write`
-- 嫌麻烦随时在 GitHub → Settings → Tokens 撤销
-- `data.js` 的默认书签是公开代码，**不要把私有的 Token / Gist ID 写进去**（虽然 Gist ID 不是秘密）
-
-## 🐛 常见问题
-
-<details>
-<summary><b>本地 file:// 打开，抓不到页面标题？</b></summary>
-
-浏览器禁止 `file://` 协议下 `fetch(https://…)`。用本地 http 服务（`python -m http.server`）即可。
-</details>
-
-<details>
-<summary><b>Service Worker 没注册？</b></summary>
-
-SW 需要 `https://` / `localhost` / `127.0.0.1`。`file://` 协议下浏览器直接拒绝注册。
-</details>
-
-<details>
-<summary><b>改了代码，刷新后还是旧版本？</b></summary>
-
-SW 默认从缓存读，且只在新 SW `install` 后才接管。两种方式：
-1. 等待底部"新版本已就绪"提示 → 点"刷新"
-2. 强制更新：F12 → Application → Service Workers → **Update on reload** 勾上，然后 Ctrl+Shift+R
-3. 部署新版本时，把 `sw.js` 第 14 行 `CACHE_VERSION` 加 1（如 `nav-v1` → `nav-v2`）
-</details>
-
-<details>
-<summary><b>删除书签后"闪回"又出现？</b></summary>
-
-已修复。原因是 `confirm` 弹窗关闭触发 `focus` 事件 → 自动拉取旧 Gist 数据。代码用 `pendingPush` 守卫机制解决；同步现在是手动的，所以「闪回」问题不会再发生。
-</details>
-
-<details>
-<summary><b>Gist 同步失败，提示 401 / 404？</b></summary>
-
-- **401**：Token 无效或过期，去 GitHub 重新生成
-- **404**：Gist ID 不存在，或 Token 没访问权限（私有 Gist 必须是 Gist 所有者）
-</details>
-
-<details>
-<summary><b>多设备冲突，最后写入的会覆盖另一台？</b></summary>
-
-是。当前是 **last-write-wins** 策略。**所有同步都是手动的**（避免触发 Gist API 频率限制）：编辑后需在同步设置里点 ⬆ 推送；其他设备的改动需点 ⬇ 拉取。如对冲突敏感，编辑前先点 ⬇ 拉取一次。
-</details>
-
-<details>
-<summary><b>怎么彻底清空数据？</b></summary>
-
-F12 打开控制台执行：
-```js
-localStorage.clear();
-caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
-location.reload();
-```
-或用页面上的 ⬇ 导出 → 备份 JSON → ⬆ 导入。
-</details>
-
-## 🚧 路线图
-
-- [x] ~~PWA：manifest + service worker，支持安装到桌面 / 完全离线~~
-- [x] ~~分组折叠：分类可收起 / 展开~~
-- [x] ~~拖拽排序：分类与卡片~~
-- [ ] 多 Gist 切换：工作 / 生活 / 学习 分组同步
-- [ ] 暗色模式：`prefers-color-scheme: dark`
-- [ ] 导入浏览器书签：解析 Chrome / Firefox 的 `bookmarks.html`
-- [ ] 快捷键直达：输入 `gh` 回车直达 GitHub
-- [ ] 图标本地缓存：favicon 转 base64 存 localStorage
-
-## 📜 许可
-
-[MIT](./LICENSE) © 2026 vestfish
+**Enjoy!** 🎉
