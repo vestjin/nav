@@ -1,5 +1,5 @@
 /* =========================================================
- * 个人导航页 - 主逻辑 (完整修复版)
+ * 个人导航页 - 主逻辑 (完整修复版 + 笔记功能)
  * ========================================================= */
 (function () {
   'use strict';
@@ -203,7 +203,10 @@
     Object.keys(scopedCats).forEach((cat) => {
       scopedCats[cat].shown = scopedCats[cat].all.filter((b) => {
         if (!kw) return true;
-        return ((b.name || '').toLowerCase().includes(kw) || b.url.toLowerCase().includes(kw) || (b.category || '').toLowerCase().includes(kw));
+        return ((b.name || '').toLowerCase().includes(kw) || 
+                b.url.toLowerCase().includes(kw) || 
+                (b.category || '').toLowerCase().includes(kw) ||
+                (b.note || '').toLowerCase().includes(kw));
       });
     });
 
@@ -233,8 +236,10 @@
         const displayName = bm.name || m.title || safeHost(bm.url);
         const iconUrl = bm.icon || m.icon || buildFaviconUrl(bm.url);
         const firstChar = (displayName || '?').trim().charAt(0).toUpperCase();
+        // 构建 title 提示：名称 + 网址 + 笔记
+        const tooltip = (bm.name || safeHost(bm.url)) + (bm.note ? ' · ' + bm.note : '');
         return `
-          <a class="card" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" data-id="${bm.id}" draggable="true" title="${escapeHtml(bm.name || safeHost(bm.url))}">
+          <a class="card" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" data-id="${bm.id}" draggable="true" title="${escapeHtml(tooltip)}">
             <div class="card-drag" aria-hidden="true" title="拖动排序">⠿</div>
             <div class="card-icon">
               <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
@@ -430,6 +435,7 @@
     $('#bmUrl').value = bm ? bm.url || '' : '';
     $('#bmCategory').value = bm ? (bm.category || '') : (currentCategory !== '__all__' ? currentCategory : '');
     $('#bmIcon').value = bm ? bm.icon || '' : '';
+    $('#bmNote').value = bm ? (bm.note || '') : '';  // 读取笔记
     refreshCategoryDatalist();
     $('#modal').classList.remove('hidden');
     setTimeout(() => $('#bmUrl').focus(), 50);
@@ -446,13 +452,14 @@
     const url = $('#bmUrl').value.trim();
     const cat = $('#bmCategory').value.trim() || '未分类';
     const icon = $('#bmIcon').value.trim();
+    const note = $('#bmNote').value.trim();  // 读取笔记
     if (!url) { showToast('请输入网址'); return; }
     try { new URL(url); } catch { showToast('网址格式不正确'); return; }
     if (id) {
       const bm = bookmarks.find((b) => b.id === id);
-      if (bm) { bm.name = name; bm.url = url; bm.category = cat; bm.icon = icon; }
+      if (bm) { bm.name = name; bm.url = url; bm.category = cat; bm.icon = icon; bm.note = note; }
     } else {
-      bookmarks.push({ id: uid(), name, url, category: cat, icon });
+      bookmarks.push({ id: uid(), name, url, category: cat, icon, note });
     }
     saveBookmarks(bookmarks);
     closeModal();
@@ -562,7 +569,7 @@
         arr.forEach((b) => {
           if (!b || !b.url) return;
           if (!map.has(b.url)) {
-            map.set(b.url, { id: b.id || uid(), name: b.name || '', url: b.url, category: b.category || '未分类', icon: b.icon || '' });
+            map.set(b.url, { id: b.id || uid(), name: b.name || '', url: b.url, category: b.category || '未分类', icon: b.icon || '', note: b.note || '' });
           }
         });
         bookmarks = Array.from(map.values());
@@ -842,12 +849,12 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); }
     });
 
+    // 自动拉取：仅当本地没有待推送改动时才执行，且强制模式不弹框
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && loadSyncConfig().enabled && !pendingPush) {
-        doPull(true, true); // 强制拉取（force=true），但只在没有待推送改动时执行
+        doPull(true, true);
       }
     });
-
     window.addEventListener('focus', () => {
       if (loadSyncConfig().enabled && !pendingPush) {
         doPull(true, true);
