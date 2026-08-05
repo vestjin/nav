@@ -656,7 +656,6 @@
     `).join('');
   };
 
-  // [SYNC-TODO] 添加待办时标记 pending
   const addTodo = () => {
     const input = $('#todoInput');
     const text = input.value.trim();
@@ -665,15 +664,14 @@
     saveTodos(todos);
     input.value = '';
     renderTodos();
-    markPending(); // 新增
+    markPending();
   };
 
-  // [SYNC-TODO] 删除待办时标记 pending
   const deleteTodo = (index) => {
     todos.splice(index, 1);
     saveTodos(todos);
     renderTodos();
-    markPending(); // 新增
+    markPending();
   };
 
   const toggleTodoPanel = () => {
@@ -697,12 +695,6 @@
     return id;
   };
 
-  const isUsingDefaultGist = () => {
-    const cfg = loadSyncConfig();
-    const id = (cfg.gistId && cfg.gistId.trim()) || '';
-    return (!id || id === PLACEHOLDER_GIST_ID) && !!PLACEHOLDER_GIST_ID && PLACEHOLDER_GIST_ID !== '***********';
-  };
-
   const setSyncIndicator = (state, text) => { const el = $('#syncIndicator'); if (!el) return; el.className = 'sync-indicator' + (state ? ' ' + state : ''); el.textContent = text || ''; el.title = text || ''; };
   const setSyncStatus = (text, cls) => { const el = $('#syncStatus'); if (!el) return; el.className = 'sync-status' + (cls ? ' ' + cls : ''); el.textContent = text; };
   const gistRequest = async (path, method = 'GET', body) => {
@@ -715,7 +707,7 @@
     return res.json();
   };
 
-  // [SYNC-TODO] 修改：返回 { bookmarks, todos, updated_at }
+  // 【关键修复】pullFromGist 现在兼容数组和对象，并确保 bookmarks 和 todos 总是数组
   const pullFromGist = async () => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
@@ -731,21 +723,29 @@
       content = await res.text();
     }
     if (!content) return null;
-    const parsed = JSON.parse(content);
-    // 兼容旧格式（纯数组）和新格式（对象）
-    if (Array.isArray(parsed)) {
-      // 旧格式：只有书签数组
-      return { bookmarks: parsed, todos: null, updated_at: data.updated_at };
-    } else if (typeof parsed === 'object' && parsed !== null) {
-      const bookmarks = Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [];
-      const todos = Array.isArray(parsed.todos) ? parsed.todos : [];
-      return { bookmarks, todos, updated_at: data.updated_at };
-    } else {
-      throw new Error('Gist 内容格式无效');
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      throw new Error('Gist 内容不是有效的 JSON');
     }
+
+    // 兼容旧格式（数组）和新格式（对象）
+    let bookmarks = [];
+    let todos = [];
+    if (Array.isArray(parsed)) {
+      bookmarks = parsed;
+      // 旧格式没有待办，保留本地待办（不覆盖）
+      todos = null; // 使用 null 表示不更新待办
+    } else if (typeof parsed === 'object' && parsed !== null) {
+      bookmarks = Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [];
+      todos = Array.isArray(parsed.todos) ? parsed.todos : [];
+    } else {
+      throw new Error('Gist 内容格式无效，既不是数组也不是对象');
+    }
+    return { bookmarks, todos, updated_at: data.updated_at };
   };
 
-  // [SYNC-TODO] 修改：推送对象 { bookmarks, todos }
   const pushToGist = async (bookmarks, todos) => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
@@ -759,7 +759,6 @@
   let syncing = false; let pendingPush = false;
   const markPending = () => { if (!loadSyncConfig().enabled) return; pendingPush = true; setSyncIndicator('unsaved', '●'); setSyncStatus('本地有未推送的修改', 'busy'); };
 
-  // [SYNC-TODO] 修改：拉取后更新书签和待办
   const doPull = async (silent = false, force = false) => {
     if (syncing) return;
     if (pendingPush && !force) {
@@ -780,21 +779,27 @@
         return;
       }
       const { bookmarks: remoteBookmarks, todos: remoteTodos, updated_at } = result;
-      // 更新书签
-      if (remoteBookmarks && remoteBookmarks.length >= 0) {
+      // 更新书签（总是执行）
+      if (remoteBookmarks && Array.isArray(remoteBookmarks)) {
         bookmarks = remoteBookmarks;
         saveBookmarks(bookmarks);
         render($('#searchInput').value);
-      }
-      // 更新待办
-      if (remoteTodos !== null) {
-        // 新格式包含待办
-        todos = remoteTodos;
-        saveTodos(todos);
-        renderTodos();
       } else {
-        // 旧格式没有待办，保留本地待办
-        // 不做改变
+        // 如果远程书签无效，不更新
+        if (!silent) showToast('远程书签数据无效，跳过');
+      }
+      // 更新待办（仅当远程包含待办数据时，即非旧格式）
+      if (remoteTodos !== null) {
+        if (Array.isArray(remoteTodos)) {
+          todos = remoteTodos;
+          saveTodos(todos);
+          renderTodos();
+        } else {
+          if (!silent) showToast('远程待办数据无效，跳过');
+        }
+      } else {
+        // 旧格式：保持本地待办不变
+        if (!silent) showToast('远程为旧格式书签，待办保持本地');
       }
       pendingPush = false;
       const cfg = loadSyncConfig();
@@ -802,7 +807,7 @@
       saveSyncConfig(cfg);
       if (!silent) {
         const count = remoteBookmarks ? remoteBookmarks.length : 0;
-        const todoCount = (remoteTodos !== null) ? remoteTodos.length : '（未同步）';
+        const todoCount = (remoteTodos !== null && Array.isArray(remoteTodos)) ? remoteTodos.length : '（未同步）';
         showToast(`已从 Gist 拉取 ${count} 项书签${remoteTodos !== null ? ` 和 ${todoCount} 项待办` : ''}`);
       }
       setSyncIndicator('synced', '✓');
@@ -818,14 +823,13 @@
     }
   };
 
-  // [SYNC-TODO] 修改：推送时包含待办
   const doPush = async () => {
     if (syncing) return;
     syncing = true;
     setSyncIndicator('syncing', '⏳');
     setSyncStatus('正在推送…', 'busy');
     try {
-      const currentTodos = loadTodos(); // 获取最新待办
+      const currentTodos = loadTodos();
       await pushToGist(bookmarks, currentTodos);
       const cfg = loadSyncConfig();
       cfg.lastSync = Date.now();
@@ -849,7 +853,6 @@
     const lastSyncTime = cfg.lastSync ? new Date(cfg.lastSync).toLocaleString('zh-CN') : '从未同步';
     setSyncStatus(`上次同步：${lastSyncTime}`, cfg.lastSync ? 'ok' : '');
     const effectiveId = getGistId();
-    const usingDefault = isUsingDefaultGist();
     $('#ghToken').value = cfg.token || '';
     $('#ghGistId').value = cfg.gistId || '';
     $('#ghGistId').placeholder = '例如：abc123... 请手动创建 Gist 并填写 ID';
