@@ -44,6 +44,14 @@ button { font: inherit; }
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 20px;
+  /* 悬浮固定 */
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(60, 50, 30, 0.06);
+  padding: 4px 0 8px; /* 微调内边距，保持视觉平衡 */
 }
 
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -79,7 +87,7 @@ button { font: inherit; }
 
 /* ---------- 侧栏 ---------- */
 .sidebar {
-  position: sticky; top: 22px;
+  position: sticky; top: 76px; /* 调整为头部高度 + 间距，避免被固定头部遮挡 */
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 10px;
   max-height: calc(100vh - 44px); 
@@ -593,7 +601,7 @@ body.focus-mode .search-bar { transform: scale(1.15); }
     gap: 14px;
   }
   .sidebar {
-    position: static;
+    position: sticky; top: 76px; /* 保持一致 */
     max-height: 300px;
     padding: 10px 6px;
   }
