@@ -842,8 +842,17 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); }
     });
 
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && loadSyncConfig().enabled) doPull(true); });
-    window.addEventListener('focus', () => { if (loadSyncConfig().enabled) doPull(true); });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && loadSyncConfig().enabled && !pendingPush) {
+        doPull(true, true); // 强制拉取（force=true），但只在没有待推送改动时执行
+      }
+    });
+
+    window.addEventListener('focus', () => {
+      if (loadSyncConfig().enabled && !pendingPush) {
+        doPull(true, true);
+      }
+    });
 
     $('#year').textContent = new Date().getFullYear();
   };
