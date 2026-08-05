@@ -1,5 +1,5 @@
 /* =========================================================
- * 个人导航页 - 主逻辑 (完整修复版 + 笔记功能)
+ * 个人导航页 - 主逻辑 (完整版：Gist ID手动配置 + 笔记徽章 + 帮助)
  * ========================================================= */
 (function () {
   'use strict';
@@ -13,6 +13,8 @@
   const LS_CAT_ORDER = 'personal-nav-cat-order-v1';
   const LS_CURRENT_CAT = 'personal-nav-current-cat-v1';
   const CACHE_TTL = 1000 * 60 * 60 * 24 * 7;
+
+  const PLACEHOLDER_GIST_ID = '***********';
 
   const ENGINES = {
     bing: { name: 'Bing', url: (q) => `https://www.bing.com/search?q=${encodeURIComponent(q)}` },
@@ -181,7 +183,6 @@
     const container = $('#navContainer');
     const kw = filter.trim().toLowerCase();
 
-    // 搜索时强制使用全部分类
     const effectiveCategory = (kw ? '__all__' : currentCategory);
 
     const allCats = {};
@@ -236,11 +237,12 @@
         const displayName = bm.name || m.title || safeHost(bm.url);
         const iconUrl = bm.icon || m.icon || buildFaviconUrl(bm.url);
         const firstChar = (displayName || '?').trim().charAt(0).toUpperCase();
-        // 构建 title 提示：名称 + 网址 + 笔记
         const tooltip = (bm.name || safeHost(bm.url)) + (bm.note ? ' · ' + bm.note : '');
+        const hasNote = bm.note && bm.note.trim().length > 0;
         return `
           <a class="card" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" data-id="${bm.id}" draggable="true" title="${escapeHtml(tooltip)}">
             <div class="card-drag" aria-hidden="true" title="拖动排序">⠿</div>
+            ${hasNote ? `<div class="note-badge" title="含有笔记">📝</div>` : ''}
             <div class="card-icon">
               <img src="${escapeHtml(iconUrl)}" alt="" decoding="async" draggable="false" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
               <div class="fallback" style="display:none">${escapeHtml(firstChar)}</div>
@@ -435,12 +437,21 @@
     $('#bmUrl').value = bm ? bm.url || '' : '';
     $('#bmCategory').value = bm ? (bm.category || '') : (currentCategory !== '__all__' ? currentCategory : '');
     $('#bmIcon').value = bm ? bm.icon || '' : '';
-    $('#bmNote').value = bm ? (bm.note || '') : '';  // 读取笔记
+    $('#bmNote').value = bm ? (bm.note || '') : '';
     refreshCategoryDatalist();
     $('#modal').classList.remove('hidden');
     setTimeout(() => $('#bmUrl').focus(), 50);
   };
   const closeModal = () => $('#modal').classList.add('hidden');
+
+  // 帮助模态框控制
+  const openHelp = () => {
+    document.getElementById('helpModal').classList.remove('hidden');
+  };
+  const closeHelp = () => {
+    document.getElementById('helpModal').classList.add('hidden');
+  };
+
   const refreshCategoryDatalist = () => {
     const cats = Array.from(new Set(bookmarks.map((b) => b.category).filter(Boolean)));
     $('#categoryList').innerHTML = cats.map((c) => `<option value="${escapeHtml(c)}">`).join('');
@@ -452,7 +463,7 @@
     const url = $('#bmUrl').value.trim();
     const cat = $('#bmCategory').value.trim() || '未分类';
     const icon = $('#bmIcon').value.trim();
-    const note = $('#bmNote').value.trim();  // 读取笔记
+    const note = $('#bmNote').value.trim();
     if (!url) { showToast('请输入网址'); return; }
     try { new URL(url); } catch { showToast('网址格式不正确'); return; }
     if (id) {
@@ -609,13 +620,26 @@
     render($('#searchInput').value);
   };
 
+  // ===================== 云同步 =====================
   const GIST_API = 'https://api.github.com';
   const GIST_FILE = 'nav-bookmarks.json';
-  const DEFAULT_GIST_ID = '***********';
+
   const loadSyncConfig = () => { try { return JSON.parse(localStorage.getItem(LS_SYNC)) || {}; } catch { return {}; } };
   const saveSyncConfig = (c) => localStorage.setItem(LS_SYNC, JSON.stringify(c));
-  const getGistId = () => { const cfg = loadSyncConfig(); return (cfg.gistId && cfg.gistId.trim()) || (DEFAULT_GIST_ID.trim() || ''); };
-  const isUsingDefaultGist = () => { const cfg = loadSyncConfig(); return !(cfg.gistId && cfg.gistId.trim()) && !!DEFAULT_GIST_ID.trim(); };
+
+  const getGistId = () => {
+    const cfg = loadSyncConfig();
+    const id = (cfg.gistId && cfg.gistId.trim()) || '';
+    if (id === PLACEHOLDER_GIST_ID) return '';
+    return id;
+  };
+
+  const isUsingDefaultGist = () => {
+    const cfg = loadSyncConfig();
+    const id = (cfg.gistId && cfg.gistId.trim()) || '';
+    return (!id || id === PLACEHOLDER_GIST_ID) && !!PLACEHOLDER_GIST_ID && PLACEHOLDER_GIST_ID !== '***********';
+  };
+
   const setSyncIndicator = (state, text) => { const el = $('#syncIndicator'); if (!el) return; el.className = 'sync-indicator' + (state ? ' ' + state : ''); el.textContent = text || ''; el.title = text || ''; };
   const setSyncStatus = (text, cls) => { const el = $('#syncStatus'); if (!el) return; el.className = 'sync-status' + (cls ? ' ' + cls : ''); el.textContent = text; };
   const gistRequest = async (path, method = 'GET', body) => {
@@ -627,15 +651,12 @@
     if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || ('HTTP ' + res.status)); }
     return res.json();
   };
-  const createGist = async (bookmarks) => {
-    const data = await gistRequest('/gists', 'POST', { description: 'Personal Nav - Bookmarks', public: false, files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } } });
-    return data.id;
-  };
+
   const pullFromGist = async () => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
     const effectiveGistId = getGistId();
-    if (!effectiveGistId) throw new Error('没有可用的 Gist ID，请先保存设置或填入默认');
+    if (!effectiveGistId) throw new Error('没有有效的 Gist ID，请在设置中填写');
     const data = await gistRequest('/gists/' + effectiveGistId);
     const file = data.files[GIST_FILE];
     if (!file) return null;
@@ -648,20 +669,15 @@
     if (!content) return null;
     const arr = JSON.parse(content);
     if (!Array.isArray(arr)) throw new Error('Gist 内容不是书签数组');
-    // 返回数据和更新时间
     return { data: arr, updated_at: data.updated_at };
   };
+
   const pushToGist = async (bookmarks) => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
     const effectiveGistId = getGistId();
-    if (effectiveGistId) {
-      await gistRequest('/gists/' + effectiveGistId, 'PATCH', { files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } } });
-    } else {
-      const newId = await createGist(bookmarks);
-      cfg.gistId = newId; saveSyncConfig(cfg);
-      const idEl = $('#ghGistId'); if (idEl) idEl.value = newId;
-    }
+    if (!effectiveGistId) throw new Error('未配置 Gist ID，请先在设置中填写有效的 Gist ID');
+    await gistRequest('/gists/' + effectiveGistId, 'PATCH', { files: { [GIST_FILE]: { content: JSON.stringify(bookmarks, null, 2) } } });
     cfg.lastSync = Date.now(); saveSyncConfig(cfg);
   };
 
@@ -670,7 +686,6 @@
   const doPull = async (silent = false, force = false) => {
     if (syncing) return;
     if (pendingPush && !force) {
-      // 提示用户冲突
       const confirmMsg = '本地有未推送的修改，拉取将覆盖本地数据，确定继续吗？';
       if (!confirm(confirmMsg)) {
         setSyncIndicator('unsaved', '●');
@@ -688,16 +703,13 @@
         return;
       }
       const { data: remote, updated_at } = result;
-      // 如果远程为空数组，也当作成功
       if (remote.length === 0) {
         if (!silent) setSyncStatus('Gist 中无书签', '');
       } else {
-        // 覆盖本地
         bookmarks = remote;
         saveBookmarks(bookmarks);
         render($('#searchInput').value);
-        pendingPush = false; // 清除未推送标记
-        // 保存同步时间
+        pendingPush = false;
         const cfg = loadSyncConfig();
         cfg.lastSync = updated_at ? new Date(updated_at).getTime() : Date.now();
         saveSyncConfig(cfg);
@@ -722,7 +734,6 @@
     setSyncStatus('正在推送…', 'busy');
     try {
       await pushToGist(bookmarks);
-      // 推送成功后，本地的 lastSync 更新为当前时间
       const cfg = loadSyncConfig();
       cfg.lastSync = Date.now();
       saveSyncConfig(cfg);
@@ -744,15 +755,14 @@
     const lastSyncTime = cfg.lastSync ? new Date(cfg.lastSync).toLocaleString('zh-CN') : '从未同步';
     setSyncStatus(`上次同步：${lastSyncTime}`, cfg.lastSync ? 'ok' : '');
     const effectiveId = getGistId();
-    const hasDefault = !!DEFAULT_GIST_ID.trim();
     const usingDefault = isUsingDefaultGist();
     $('#ghToken').value = cfg.token || '';
     $('#ghGistId').value = cfg.gistId || '';
-    $('#ghGistId').placeholder = hasDefault ? `默认：${DEFAULT_GIST_ID.slice(0, 8)}…（留空使用）` : '留空将自动创建私有 Gist';
+    $('#ghGistId').placeholder = '例如：abc123... 请手动创建 Gist 并填写 ID';
     $('#enableSync').checked = !!cfg.enabled;
     $('#proxyUrl').value = localStorage.getItem(LS_PROXY) || '';
     let infoLine = '';
-    if (effectiveId) { infoLine = usingDefault ? `当前使用 内置默认 Gist (${effectiveId.slice(0, 8)}…)` : `当前 Gist: ${effectiveId}`; }
+    if (effectiveId) { infoLine = `当前 Gist: ${effectiveId}`; }
     if (cfg.lastSync) { setSyncStatus(`上次同步：${new Date(cfg.lastSync).toLocaleString('zh-CN')}\n${infoLine}`, 'ok'); }
     else if (cfg.token) { setSyncStatus(`已配置 Token${infoLine ? '\n' + infoLine : ''}`, ''); }
     else { setSyncStatus('未配置', ''); }
@@ -768,8 +778,14 @@
     saveSyncConfig(cfg);
     localStorage.setItem(LS_PROXY, $('#proxyUrl').value.trim());
     showToast('设置已保存');
-    if (cfg.enabled && cfg.token) { if (!getGistId()) doPush(); else doPull(); }
-    else { setSyncIndicator('', ''); }
+    if (cfg.enabled && (!cfg.token || !getGistId())) {
+      showToast('提醒：启用同步但未填写 Token 或 Gist ID，同步将无法工作', 3000);
+    }
+    if (cfg.enabled && cfg.token && getGistId()) {
+      doPull(true);
+    } else {
+      setSyncIndicator('', '');
+    }
   };
 
   const bindEvents = () => {
@@ -811,6 +827,13 @@
     $('#pullNow').addEventListener('click', () => { if (pendingPush) { if (!confirm('本地有未推送的修改，拉取会覆盖它们。是否继续？')) return; } doPull(false, true); });
     $('#pushNow').addEventListener('click', () => doPush());
 
+    // 帮助按钮
+    document.getElementById('helpBtnSide').addEventListener('click', openHelp);
+    document.getElementById('closeHelpBtn').addEventListener('click', closeHelp);
+    document.getElementById('helpModal').addEventListener('click', (e) => {
+      if (e.target.id === 'helpModal') closeHelp();
+    });
+
     const manageGroupBtn = $('#manageGroupBtn');
     const cancelGroupBtn = $('#cancelGroup');
     const groupModal = $('#groupModal');
@@ -843,13 +866,15 @@
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        closeModal(); closeSettings(); closeGroupManager();
+        closeModal(); 
+        closeSettings(); 
+        closeGroupManager(); 
+        closeHelp();
         if (document.body.classList.contains('focus-mode')) document.body.classList.remove('focus-mode');
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); }
     });
 
-    // 自动拉取：仅当本地没有待推送改动时才执行，且强制模式不弹框
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && loadSyncConfig().enabled && !pendingPush) {
         doPull(true, true);

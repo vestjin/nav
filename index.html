@@ -28,7 +28,10 @@
 
   <div class="layout">
     <aside class="sidebar">
-      <div class="sidebar-title">分组</div>
+      <div class="sidebar-title">
+        分组
+        <button id="helpBtnSide" class="sidebar-help-btn" title="帮助" aria-label="帮助">❓</button>
+      </div>
       <nav id="categoryNav" class="category-nav" aria-label="书签分组"></nav>
       <button id="manageGroupBtn" class="sidebar-manage-btn">管理分组</button>
     </aside>
@@ -68,6 +71,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- 书签编辑/添加模态框 -->
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2 id="modalTitle">添加书签</h2>
@@ -77,7 +81,6 @@
         <label>分类 <input id="bmCategory" type="text" placeholder="例如：常用" list="categoryList" /></label>
         <datalist id="categoryList"></datalist>
         <label>图标 URL（可选） <input id="bmIcon" type="url" placeholder="https://…" /></label>
-        <!-- 新增笔记输入框 -->
         <label>笔记（可选）
           <textarea id="bmNote" rows="3" placeholder="添加备注、感想或待办事项…"></textarea>
         </label>
@@ -90,17 +93,20 @@
     </div>
   </div>
 
+  <!-- 云同步设置模态框 -->
   <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2>云同步设置</h2>
       <p class="settings-hint">
-        使用 GitHub Gist 跨设备同步书签。
-        <a href="https://github.com/settings/tokens/new?scopes=gist&description=Personal%20Nav%20Sync" target="_blank" rel="noopener">创建 Token（仅需 Gists 权限）</a>
-        · 留空 Gist ID 时使用代码内置的默认 ID。
+        使用 GitHub Gist 跨设备同步书签。<br>
+        1. 前往 <a href="https://github.com/settings/tokens/new?scopes=gist&description=Personal%20Nav%20Sync" target="_blank" rel="noopener">GitHub Tokens</a> 创建 Token（仅勾选 <code>gist</code> 权限）并复制。<br>
+        2. 前往 <a href="https://gist.github.com/" target="_blank" rel="noopener">Gist</a> 创建一个新的私有 Gist（内容可留空），复制其 ID（URL 中最后一段）。<br>
+        3. 将 Token 和 Gist ID 填入下方，启用同步并保存。<br>
+        <strong>注意：请务必保管好您的 Token 和 Gist ID，系统不会自动创建。</strong>
       </p>
       <form id="settingsForm">
         <label>GitHub Token <input id="ghToken" type="password" placeholder="ghp_…" autocomplete="off" /></label>
-        <label>Gist ID <input id="ghGistId" type="text" placeholder="留空将自动创建" autocomplete="off" /></label>
+        <label>Gist ID <input id="ghGistId" type="text" placeholder="例如：abc123... 请手动创建 Gist 并填写 ID" autocomplete="off" /></label>
         <label class="checkbox-label"><input id="enableSync" type="checkbox" /> 启用云同步</label>
         
         <div style="border-top: 1px solid var(--border); margin: 16px 0; padding-top: 16px;">
@@ -119,6 +125,7 @@
     </div>
   </div>
 
+  <!-- 分组管理模态框 -->
   <div id="groupModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2>分组管理</h2>
@@ -126,6 +133,55 @@
       <div id="groupList" class="group-list"></div>
       <div class="modal-actions">
         <button type="button" id="cancelGroup" class="btn primary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 帮助模态框 -->
+  <div id="helpModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card help-modal">
+      <h2>📖 使用指南</h2>
+      <div class="help-content">
+        <h3>📌 核心功能</h3>
+        <ul>
+          <li><strong>书签管理</strong> – 点击“＋”添加，支持名称、网址、分类、图标和笔记（📝 标记）。</li>
+          <li><strong>分组分类</strong> – 左侧侧栏显示所有分组，点击切换；分组标题旁可折叠/展开，拖拽调整顺序。</li>
+          <li><strong>搜索过滤</strong> – 实时搜索书签名称、网址、分类和笔记内容，回车直接使用搜索引擎。</li>
+          <li><strong>拖拽排序</strong> – 拖拽卡片调整顺序（同组或跨组），拖拽分类标题调整分组顺序。</li>
+          <li><strong>元数据抓取</strong> – 自动获取网页标题和 favicon，可手动刷新。</li>
+          <li><strong>笔记功能</strong> – 每个书签可添加笔记，卡片右上角显示 📝 徽章提示。</li>
+          <li><strong>专注模式</strong> – 点击时钟区域隐藏侧栏和书签，再次点击恢复。</li>
+        </ul>
+
+        <h3>☁️ 云同步</h3>
+        <ul>
+          <li>使用 GitHub Gist 跨设备同步，需自行创建 Token 和 Gist ID。</li>
+          <li>填写后启用同步，点击“拉取”或“推送”手动同步。</li>
+          <li>本地修改后同步指示器会显示“●”，提醒您及时推送。</li>
+        </ul>
+
+        <h3>📦 数据导入/导出</h3>
+        <ul>
+          <li>导出为 JSON 备份，导入时按 URL 合并（不覆盖已有项）。</li>
+          <li>所有数据存储在浏览器本地，卸载应用或清除浏览器数据会丢失，请定期导出备份。</li>
+        </ul>
+
+        <h3>⚙️ 其他</h3>
+        <ul>
+          <li><strong>快捷键</strong>：<kbd>Ctrl+K</kbd> 聚焦搜索框，<kbd>Esc</kbd> 关闭所有弹窗/专注模式。</li>
+          <li><strong>抓取代理</strong>：可配置自建代理加速标题获取，留空使用公共代理（可能受限）。</li>
+        </ul>
+
+        <h3>⚠️ 注意事项</h3>
+        <ul>
+          <li><strong>Token 安全</strong>：GitHub Token 以明文存储在 localStorage，请勿在公共设备上使用。</li>
+          <li><strong>Gist ID 必须手动填写</strong>：系统不会自动创建 Gist，请务必先创建并填入。</li>
+          <li><strong>数据备份</strong>：建议定期导出 JSON 备份，以防浏览器数据丢失。</li>
+          <li><strong>浏览器兼容</strong>：推荐使用最新版 Chrome/Edge/Firefox，拖拽功能需现代浏览器支持。</li>
+        </ul>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="closeHelpBtn" class="btn primary">我知道了</button>
       </div>
     </div>
   </div>
