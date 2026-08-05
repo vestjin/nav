@@ -1,5 +1,5 @@
 /* =========================================================
- * 个人导航页 - 主逻辑 (完整版：Gist ID手动配置 + 笔记徽章 + 帮助)
+ * 个人导航页 - 主逻辑 (完整版：Gist ID手动配置 + 笔记徽章 + 帮助 + 待办)
  * ========================================================= */
 (function () {
   'use strict';
@@ -12,6 +12,8 @@
   const LS_COLLAPSED = 'personal-nav-collapsed-v1';
   const LS_CAT_ORDER = 'personal-nav-cat-order-v1';
   const LS_CURRENT_CAT = 'personal-nav-current-cat-v1';
+  const LS_TODO = 'personal-nav-todo-v1';
+  const LS_TODO_COLLAPSED = 'personal-nav-todo-collapsed-v1';
   const CACHE_TTL = 1000 * 60 * 60 * 24 * 7;
 
   const PLACEHOLDER_GIST_ID = '***********';
@@ -37,6 +39,7 @@
   const safeHost = (url) => { try { return new URL(url).host; } catch { return url; } };
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // ---------- 书签 ----------
   const loadBookmarks = () => {
     try { const raw = localStorage.getItem(LS_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
     return (window.DEFAULT_BOOKMARKS || []).map((b) => ({ ...b }));
@@ -133,6 +136,7 @@
     return { title, icon };
   };
 
+  // ---------- 时钟 ----------
   const tickClock = () => {
     const display = $('#clockDisplay');
     if (!display) return;
@@ -152,6 +156,7 @@
 
   let bookmarks = loadBookmarks();
 
+  // ---------- 渲染书签 ----------
   const getSortedCategories = (keys) => {
     return keys.sort((a, b) => {
       const ai = categoryOrder.indexOf(a); const bi = categoryOrder.indexOf(b);
@@ -282,6 +287,7 @@
     else { el.textContent = String(total); el.title = `共 ${total} 项书签`; }
   };
 
+  // ---------- 事件绑定 ----------
   const onCategoryNavClick = (e) => {
     const btn = e.target.closest('.cat-item');
     if (!btn) return;
@@ -321,6 +327,7 @@
     }
   };
 
+  // ---------- 拖拽 ----------
   const drag = { kind: null, id: null, cat: null };
   const clearDragStates = () => { document.querySelectorAll('.dragging, .drag-over, .drag-over-before, .drag-over-after').forEach((el) => el.classList.remove('dragging', 'drag-over', 'drag-over-before', 'drag-over-after')); };
   const onDragStart = (e) => {
@@ -430,6 +437,7 @@
     saveCategoryOrder();
   };
 
+  // ---------- 模态框 ----------
   const openModal = (bm) => {
     $('#modalTitle').textContent = bm ? '编辑书签' : '添加书签';
     $('#bmId').value = bm ? bm.id : '';
@@ -444,13 +452,8 @@
   };
   const closeModal = () => $('#modal').classList.add('hidden');
 
-  // 帮助模态框控制
-  const openHelp = () => {
-    document.getElementById('helpModal').classList.remove('hidden');
-  };
-  const closeHelp = () => {
-    document.getElementById('helpModal').classList.add('hidden');
-  };
+  const openHelp = () => { document.getElementById('helpModal').classList.remove('hidden'); };
+  const closeHelp = () => { document.getElementById('helpModal').classList.add('hidden'); };
 
   const refreshCategoryDatalist = () => {
     const cats = Array.from(new Set(bookmarks.map((b) => b.category).filter(Boolean)));
@@ -480,6 +483,7 @@
     enrichAll(false);
   };
 
+  // ---------- 分组管理 ----------
   const openGroupManager = () => {
     const listEl = $('#groupList');
     if (!listEl) return;
@@ -556,6 +560,7 @@
     openGroupManager();
   };
 
+  // ---------- 导入导出 ----------
   const exportData = () => {
     const data = JSON.stringify(bookmarks, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -594,6 +599,7 @@
     input.click();
   };
 
+  // ---------- 抓取 ----------
   const runWithConcurrency = async (items, limit, fn) => {
     const results = new Array(items.length);
     let idx = 0;
@@ -620,7 +626,60 @@
     render($('#searchInput').value);
   };
 
-  // ===================== 云同步 =====================
+  // ---------- 待办事项 ----------
+  const loadTodos = () => {
+    try {
+      const raw = localStorage.getItem(LS_TODO);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return [];
+  };
+  const saveTodos = (todos) => localStorage.setItem(LS_TODO, JSON.stringify(todos));
+
+  let todos = loadTodos();
+  let todoCollapsed = (() => {
+    try { return JSON.parse(localStorage.getItem(LS_TODO_COLLAPSED)) === true; } catch { return false; }
+  })();
+
+  const renderTodos = () => {
+    const list = $('#todoList');
+    if (!list) return;
+    if (todos.length === 0) {
+      list.innerHTML = '<li style="color:var(--text-dim);text-align:center;padding:8px 0;">暂无待办</li>';
+      return;
+    }
+    list.innerHTML = todos.map((text, idx) => `
+      <li>
+        <span class="todo-text">${escapeHtml(text)}</span>
+        <button class="todo-del" data-index="${idx}" title="删除">✕</button>
+      </li>
+    `).join('');
+  };
+
+  const addTodo = () => {
+    const input = $('#todoInput');
+    const text = input.value.trim();
+    if (!text) { showToast('请输入待办内容'); return; }
+    todos.push(text);
+    saveTodos(todos);
+    input.value = '';
+    renderTodos();
+  };
+
+  const deleteTodo = (index) => {
+    todos.splice(index, 1);
+    saveTodos(todos);
+    renderTodos();
+  };
+
+  const toggleTodoPanel = () => {
+    todoCollapsed = !todoCollapsed;
+    localStorage.setItem(LS_TODO_COLLAPSED, JSON.stringify(todoCollapsed));
+    const panel = $('#todoPanel');
+    if (panel) panel.classList.toggle('collapsed', todoCollapsed);
+  };
+
+  // ---------- 云同步 ----------
   const GIST_API = 'https://api.github.com';
   const GIST_FILE = 'nav-bookmarks.json';
 
@@ -788,6 +847,7 @@
     }
   };
 
+  // ---------- 注册事件 ----------
   const bindEvents = () => {
     const engineSel = $('#webEngine');
     const savedEngine = localStorage.getItem(LS_ENGINE);
@@ -827,13 +887,14 @@
     $('#pullNow').addEventListener('click', () => { if (pendingPush) { if (!confirm('本地有未推送的修改，拉取会覆盖它们。是否继续？')) return; } doPull(false, true); });
     $('#pushNow').addEventListener('click', () => doPush());
 
-    // 帮助按钮
+    // 帮助
     document.getElementById('helpBtnSide').addEventListener('click', openHelp);
     document.getElementById('closeHelpBtn').addEventListener('click', closeHelp);
     document.getElementById('helpModal').addEventListener('click', (e) => {
       if (e.target.id === 'helpModal') closeHelp();
     });
 
+    // 分组管理
     const manageGroupBtn = $('#manageGroupBtn');
     const cancelGroupBtn = $('#cancelGroup');
     const groupModal = $('#groupModal');
@@ -847,9 +908,11 @@
       groupList.addEventListener('click', onGroupMgrDel);
     }
 
+    // 分类导航
     $('#categoryNav').addEventListener('click', onCategoryNavClick);
     $('#navContainer').addEventListener('click', onCardAction);
 
+    // 拖拽
     const navEl = $('#navContainer');
     navEl.addEventListener('dragstart', onDragStart);
     navEl.addEventListener('dragend', onDragEnd);
@@ -864,6 +927,7 @@
       e.preventDefault(); header.click();
     });
 
+    // 全局快捷键
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeModal(); 
@@ -875,20 +939,27 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); }
     });
 
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && loadSyncConfig().enabled && !pendingPush) {
-        doPull(true, true);
+    // 待办事件
+    $('#todoAddBtn').addEventListener('click', addTodo);
+    $('#todoInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addTodo(); } });
+    $('#todoList').addEventListener('click', (e) => {
+      const delBtn = e.target.closest('.todo-del');
+      if (delBtn) {
+        const idx = parseInt(delBtn.dataset.index, 10);
+        if (!isNaN(idx)) deleteTodo(idx);
       }
     });
-    window.addEventListener('focus', () => {
-      if (loadSyncConfig().enabled && !pendingPush) {
-        doPull(true, true);
-      }
-    });
+    $('#todoToggleBtn').addEventListener('click', toggleTodoPanel);
 
+    // 恢复待办折叠状态
+    const panel = $('#todoPanel');
+    if (panel) panel.classList.toggle('collapsed', todoCollapsed);
+
+    // 年份
     $('#year').textContent = new Date().getFullYear();
   };
 
+  // ---------- Service Worker ----------
   const registerSW = () => {
     if (!('serviceWorker' in navigator)) return;
     if (!/^https?:$/.test(location.protocol) && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
@@ -912,11 +983,13 @@
     document.body.appendChild(t);
   };
 
+  // ---------- 初始化 ----------
   const init = () => {
     bindEvents();
     tickClock();
     setInterval(tickClock, 1000);
     render('');
+    renderTodos();
     
     const startBackgroundTasks = () => {
       const cfg = loadSyncConfig();
