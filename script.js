@@ -630,7 +630,25 @@
   const loadTodos = () => {
     try {
       const raw = localStorage.getItem(LS_TODO);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // 强制规范化：确保每一项都是 { text: string, done: boolean }
+          const normalized = parsed.map(item => {
+            if (typeof item === 'object' && item !== null && 'text' in item) {
+              // 已是 { text, done } 形状，直接转换（防止 done 不是布尔值）
+              return { text: String(item.text), done: !!item.done };
+            }
+            // 其他所有情况（字符串、数字、null、undefined、其他对象）都转为文本
+            return { text: String(item), done: false };
+          });
+          // 如果数据被改变，自动保存规范化版本（无缝升级）
+          if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+            saveTodos(normalized);
+          }
+          return normalized;
+        }
+      }
     } catch (e) {}
     return [];
   };
@@ -648,19 +666,32 @@
       list.innerHTML = '<li style="color:var(--text-dim);text-align:center;padding:8px 0;">暂无待办</li>';
       return;
     }
-    list.innerHTML = todos.map((text, idx) => `
-      <li>
-        <span class="todo-text">${escapeHtml(text)}</span>
-        <button class="todo-del" data-index="${idx}" title="删除">✕</button>
-      </li>
-    `).join('');
+    list.innerHTML = todos.map((item, idx) => {
+      // 防御性读取（loadTodos 已规范化，但保留兜底）
+      let text = '';
+      let done = false;
+      if (typeof item === 'object' && item !== null) {
+        text = item.text !== undefined ? String(item.text) : String(item);
+        done = !!item.done;
+      } else {
+        text = String(item);
+        done = false;
+      }
+      return `
+        <li data-index="${idx}">
+          <input type="checkbox" class="todo-check" ${done ? 'checked' : ''} />
+          <span class="todo-text ${done ? 'done' : ''}">${escapeHtml(text)}</span>
+          <button class="todo-del" data-index="${idx}" title="删除">✕</button>
+        </li>
+      `;
+    }).join('');
   };
 
   const addTodo = () => {
     const input = $('#todoInput');
     const text = input.value.trim();
     if (!text) { showToast('请输入待办内容'); return; }
-    todos.push(text);
+    todos.push({ text, done: false });
     saveTodos(todos);
     input.value = '';
     renderTodos();
@@ -669,6 +700,19 @@
 
   const deleteTodo = (index) => {
     todos.splice(index, 1);
+    saveTodos(todos);
+    renderTodos();
+    markPending();
+  };
+
+  const toggleTodo = (index) => {
+    if (index < 0 || index >= todos.length) return;
+    const item = todos[index];
+    // 如果因某种原因混入了原始类型，立即修复
+    if (typeof item !== 'object' || item === null || !('text' in item)) {
+      todos[index] = { text: String(item), done: false };
+    }
+    todos[index].done = !todos[index].done;
     saveTodos(todos);
     renderTodos();
     markPending();
@@ -707,7 +751,6 @@
     return res.json();
   };
 
-  // 【关键修复】pullFromGist 现在兼容数组和对象，并确保 bookmarks 和 todos 总是数组
   const pullFromGist = async () => {
     const cfg = loadSyncConfig();
     if (!cfg.token) throw new Error('请先配置 Token');
@@ -730,13 +773,11 @@
       throw new Error('Gist 内容不是有效的 JSON');
     }
 
-    // 兼容旧格式（数组）和新格式（对象）
     let bookmarks = [];
     let todos = [];
     if (Array.isArray(parsed)) {
       bookmarks = parsed;
-      // 旧格式没有待办，保留本地待办（不覆盖）
-      todos = null; // 使用 null 表示不更新待办
+      todos = null;
     } else if (typeof parsed === 'object' && parsed !== null) {
       bookmarks = Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [];
       todos = Array.isArray(parsed.todos) ? parsed.todos : [];
@@ -779,16 +820,13 @@
         return;
       }
       const { bookmarks: remoteBookmarks, todos: remoteTodos, updated_at } = result;
-      // 更新书签（总是执行）
       if (remoteBookmarks && Array.isArray(remoteBookmarks)) {
         bookmarks = remoteBookmarks;
         saveBookmarks(bookmarks);
         render($('#searchInput').value);
       } else {
-        // 如果远程书签无效，不更新
         if (!silent) showToast('远程书签数据无效，跳过');
       }
-      // 更新待办（仅当远程包含待办数据时，即非旧格式）
       if (remoteTodos !== null) {
         if (Array.isArray(remoteTodos)) {
           todos = remoteTodos;
@@ -798,7 +836,6 @@
           if (!silent) showToast('远程待办数据无效，跳过');
         }
       } else {
-        // 旧格式：保持本地待办不变
         if (!silent) showToast('远程为旧格式书签，待办保持本地');
       }
       pendingPush = false;
@@ -907,8 +944,7 @@
       window.open(ENGINES[engine].url(q), '_blank', 'noopener,noreferrer');
     });
 
-    $('#searchInput').addEventListener('input', (e) => { const has = !!e.target.value; $('#clearSearch').classList.toggle('hidden', !has); render(e.target.value); });
-    $('#clearSearch').addEventListener('click', () => { $('#searchInput').value = ''; $('#clearSearch').classList.add('hidden'); render(''); $('#searchInput').focus(); });
+    $('#searchInput').addEventListener('input', (e) => { render(e.target.value); });
 
     $('#addBtn').addEventListener('click', () => openModal(null));
     $('#cancelBtn').addEventListener('click', closeModal);
@@ -977,16 +1013,23 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#searchInput').focus(); $('#searchInput').select(); }
     });
 
-    // 待办事件
-    $('#todoAddBtn').addEventListener('click', addTodo);
-    $('#todoInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addTodo(); } });
+    // 待办事件（checkbox + 点击切换，删除按钮）
     $('#todoList').addEventListener('click', (e) => {
       const delBtn = e.target.closest('.todo-del');
       if (delBtn) {
         const idx = parseInt(delBtn.dataset.index, 10);
         if (!isNaN(idx)) deleteTodo(idx);
+        return;
+      }
+      const li = e.target.closest('li');
+      if (li) {
+        const idx = parseInt(li.dataset.index, 10);
+        if (!isNaN(idx)) toggleTodo(idx);
       }
     });
+
+    $('#todoAddBtn').addEventListener('click', addTodo);
+    $('#todoInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addTodo(); } });
     $('#todoToggleBtn').addEventListener('click', toggleTodoPanel);
 
     // 恢复待办折叠状态
